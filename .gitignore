@@ -1,0 +1,50 @@
+# ---- OS / Editors ----
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.code-workspace
+
+# ---- Python ----
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.pkl
+.build/
+dist/
+build/
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.coverage
+coverage.xml
+
+# ---- Node / Next.js ----
+frontend/node_modules/
+frontend/.next/
+frontend/.vercel/
+frontend/.turbo/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# ---- Env / Secrets ----
+.env
+*.env.local
+backend/.env
+
+# ---- Data / Media ----
+data/docs/**          # PDFs and large docs kept locally
+!data/telemetry/*.csv # keep small CSVs
+data/telemetry/*.mp4
+data/telemetry/*.mov
+data/**/*.mp4
+data/**/*.mkv
+data/**/*.avi
+*.bin
+
+# ---- Generated assets ----
+*.log
