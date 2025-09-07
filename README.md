@@ -32,58 +32,62 @@ We focus the demo on **AI reasoning, memory, and human-AI collaboration**. Telem
 ```bash
 aria-space-rider/
 ├─ README.md
-├─ .gitignore
 ├─ .env.example
 ├─ Makefile
 ├─ data/
-│  ├─ telemetry/                              # pre-recorded, small CSVs for playback
-│  │  ├─ landing_crosswind_baseline.csv
-│  │  ├─ landing_crosswind_lesson.csv
-│  │  └─ landing_blackout_window.csv
-│  └─ docs/                                   # local docs you ingest (kept out of git)
-│     └─ space_rider_manual/                  # PDFs go here (ignored by .gitignore)
+│  ├─ telemetry/
+│  └─ docs/
+│     ├─ space_rider_manual/
+│     └─ processed/                 # .md from PyMuPDF4LLM
 │
 ├─ backend/
 │  ├─ requirements.txt
-│  ├─ app.py                                  # FastAPI app + startup hooks
-│  ├─ settings.py                             # env & config
+│  ├─ app.py                        # FastAPI app + startup
+│  ├─ settings.py                   # env & config
 │  ├─ api/
-│  │  ├─ routes_playback.py                   # start/stop/list scenarios
-│  │  ├─ routes_plan.py                       # approve/modify/reject endpoints
-│  │  └─ routes_admin.py                      # reset memory, ingest docs
+│  │  ├─ routes_playback.py         # start/stop/list scenarios
+│  │  ├─ routes_plan.py             # approve/modify/reject; stream plan SSE
+│  │  ├─ routes_events.py           # SSE: ticks, anomalies, decisions
+│  │  └─ routes_admin.py            # reset memory, ingest docs
 │  ├─ services/
-│  │  ├─ playback.py                          # streams CSV at realtime (20 Hz) + events
-│  │  ├─ events.py                            # anomaly/phase detectors (1 Hz triggers)
-│  │  ├─ planner.py                           # calls agent, returns JSON plan
-│  │  ├─ plan_schema.py                       # Pydantic models (Plan, Decision, Metrics)
-│  │  ├─ safety_gate.py                       # redlines & confidence fusion
-│  │  └─ metrics.py                           # peak force proxy, touchdown stats, before/after
+│  │  ├─ playback.py                # 20Hz CSV stream; 1Hz ticks
+│  │  ├─ events.py                  # anomaly/phase detectors
+│  │  ├─ planner.py                 # 1Hz loop → compose → call model
+│  │  ├─ plan_schema.py             # Pydantic models (Plan/Decision/Metrics)
+│  │  ├─ safety_gate.py             # redlines, confidence fusion
+│  │  └─ metrics.py                 # before/after, touchdown stats
 │  ├─ aria/
-│  │  ├─ agent.py                             # Groq OpenAI-compatible call_model()
-│  │  ├─ prompts.py                           # system and few-shot templates
+│  │  ├─ agent.py                   # OpenAI-compatible client (Groq/local)
+│  │  ├─ prompts.py                 # system & few-shot, Chain-of-Draft style
 │  │  └─ memory/
 │  │     ├─ schema.sql
-│  │     ├─ store.py                          # SQLite + FTS5 (episodic/semantic/docs, wm)
-│  │     ├─ retriever.py                      # hybrid retrieval (docs + recent + lessons)
-│  │     ├─ composer.py                       # builds compact prompt from context
-│  │     ├─ governor.py                       # token budget & distill triggers
-│  │     └─ distill.py                        # turns episodic → lessons (semantic)
+│  │     ├─ store.py                # SQLite + FTS5 (episodic/semantic/docs)
+│  │     ├─ embeddings.py           # local embeddings (e5-small / MiniLM)
+│  │     ├─ retriever.py            # hybrid retrieval (FTS + embed + recency)
+│  │     ├─ composer.py             # builds working memory; sections + weights
+│  │     ├─ governor.py             # token budget, truncation, summarize
+│  │     ├─ distill.py              # episodic → lessons (semantic)
+│  │     └─ tools.py                # ReAct-lite: doc_search(), recall_lesson()
 │  └─ tools/
-│     ├─ docs_ingest.py                       # chunk PDFs into docs_fts
-│     └─ seed_from_csv.py                     # sanity-check telemetry files
+│     ├─ pdf_to_markdown_pymupdf.py # ✅ your light, fast converter
+│     ├─ docs_ingest.py             # chunk .md → docs_fts + embeddings
+│     └─ seed_from_csv.py           # telemetry sanity checks
 │
 ├─ frontend/
 │  ├─ package.json
 │  ├─ next.config.mjs
 │  ├─ app/
 │  │  ├─ layout.tsx
-│  │  └─ page.tsx                             # HUD + PlanPanel + Timeline
-│  └─ components/
-│     ├─ PlanPanel.tsx                        # plan card (risk, confidence, checks)
-│     ├─ Timeline.tsx                         # anomalies/decisions stream
-│     └─ Gauges.tsx                           # altitude, vspeed, airspeed, L/D, wind
+│  │  └─ page.tsx                   # HUD + PlanPanel + Timeline
+│  ├─ components/
+│  │  ├─ PlanPanel.tsx              # plan JSON card (risk, confidence)
+│  │  ├─ Timeline.tsx               # SSE: anomalies/decisions
+│  │  └─ Gauges.tsx                 # alt, vspeed, airspeed, L/D, wind
+│  └─ lib/
+│     ├─ ai.ts                      # Vercel AI SDK client helpers (stream)
+│     └─ events.ts                  # SSE client for /events
 └─ scripts/
-   └─ record_demo.sh                          # optional: screen-record / trim helper
+   └─ record_demo.sh
 ```
 
 ---
@@ -187,3 +191,80 @@ HIL: humans Approve / Modify / Reject every plan; fallback Checklist Mode on LLM
 This repo ships with tiny CSVs; large media (PDFs/video) are ignored by git.
 We used Groq’s OpenAI-compatible endpoint for GPT-OSS;
 Not affiliated with ESA; telemetry is synthetic for research/demo.
+
+
+### Data Flow 
+
+```bash
+CSV (data/telemetry/landing_*.csv)  ← your generator (20 Hz rows + t)
+         │
+         ▼ 20 Hz
+PlaybackService._run()
+  ├─ SSE "tick" → Frontend HUD
+  ├─ MetricsTracker.update_from_telem()
+  ├─ _maybe_emit_anomaly() → SSE "anomaly" (when needed)
+  └─ every 1s:
+        state_summary, query
+           │
+           ▼
+        planner.tick()
+           │
+           ├─ composer.build_working_memory()
+           │     ├─ episodic_recent(...)          (SQLite: episodic_log)
+           │     ├─ rephrased_guarded(query,k=4)  (SQLite: docs_rephrased + NLI vs docs)
+           │     │     └─ fallback docs(query)    (SQLite: docs)
+           │     └─ lessons(query,k=1)            (SQLite: lessons)
+           │        ↳ governor trims to token budget
+           │
+           ├─ prompts/system + few-shot + context
+           ├─ agent.call_model()  (Groq GPT-OSS-20B)
+           ├─ safety_gate.vet_plan()
+           ├─ mem_store.episodic_append(kind="decision", data=plan)
+           └─ SSE "plan_proposed" (with references + latency)
+                 │
+                 └─ Frontend (PlanPanel): Approve/Modify/Reject → POST /plan/...
+                      ↳ mem_store.episodic_append(kind="decision", text="approved/...")
+                      ↳ MetricsTracker may note result
+
+... run continues until touchdown ...
+  ├─ MetricsTracker.finish_run()
+  ├─ SSE "metrics_update" (final)
+  ├─ SSE "run_finished"
+  └─ (optional) distill.episodic → lessons (SQLite)
+        ↳ next run retrieves that new lesson automatically
+
+```
+
+SQLite roles
+* docs — raw chunks from manuals/papers; FTS + embeddings; immutable.
+* docs_rephrased — BeyondWeb-style lesson cards/Q&A/facts; preferred snippets; NLI-guarded vs docs.
+* episodic_log — per-run timeline of events/decisions/outcomes; used for RECENT context.
+* lessons — distilled, cross-run “what worked”; retrieved on future runs.
+
+### What the model actually sees each second
+
+state_summary (dict), ex:
+
+```json
+{
+  "altitude_agl_m": 420.0,
+  "vertical_speed_mps": -4.3,
+  "wind_xy_mps": [2.1, 7.8],
+  "phase": "final_approach",
+  "bank_deg": 6.2
+}
+```
+query (short string), ex:
+
+"crosswind landing flare window procedure"
+
+Working memory sections built by the composer:
+* STATE: one-line summary
+* RECENT: last few episodic events (anomalies/decisions)
+* LESSON: top 1 long-term lesson if similar
+* DOC: 1–4 rephrased snippets (NLI-guarded), else a couple of raw doc chunks
+
+The governor trims that bundle to stay inside the token budget.
+The LLM returns compact JSON: {action, reasoning, risk, confidence, references}.
+
+⸻

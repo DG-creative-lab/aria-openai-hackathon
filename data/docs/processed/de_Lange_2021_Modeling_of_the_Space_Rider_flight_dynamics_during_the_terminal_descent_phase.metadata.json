@@ -1,0 +1,18 @@
+{
+  "engine": "pymupdf4llm",
+  "filetype": "pdf",
+  "pages": 44,
+  "pdf_metadata": {
+    "format": "PDF 1.5",
+    "title": "",
+    "author": "",
+    "subject": "",
+    "keywords": "",
+    "creator": "",
+    "producer": "OpenPDF 1.4.2",
+    "creationDate": "D:20250905120351+02'00'",
+    "modDate": "",
+    "trapped": "",
+    "encryption": null
+  }
+}

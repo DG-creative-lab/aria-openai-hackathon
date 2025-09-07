@@ -1,0 +1,18 @@
+{
+  "engine": "pymupdf4llm",
+  "filetype": "pdf",
+  "pages": 149,
+  "pdf_metadata": {
+    "format": "PDF 1.7",
+    "title": "",
+    "author": "Gili  Alfredo",
+    "subject": "",
+    "keywords": "",
+    "creator": "Microsoft® Word per Microsoft 365",
+    "producer": "3-Heights(TM) Document Converter 4.8.25.5 (www.pdf-tools.com)",
+    "creationDate": "D:20230717104419+02'00'",
+    "modDate": "D:20230717104902+02'00'",
+    "trapped": "",
+    "encryption": null
+  }
+}

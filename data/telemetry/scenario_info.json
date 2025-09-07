@@ -1,0 +1,62 @@
+{
+  "normal_descent": {
+    "description": "Nominal parafoil landing with light winds",
+    "duration_seconds": 884.5,
+    "rows": 17690,
+    "timestep_s": 0.05,
+    "max_altitude_m": 4999.7,
+    "final_contact_force_n": 7527.61,
+    "wind_summary_mps": {
+      "max_abs_xy": 5.25,
+      "mean_x": 3.0213578292820804,
+      "mean_y": 1.0043233465234598
+    },
+    "non_nominal_states": []
+  },
+  "crosswind_landing": {
+    "description": "High crosswind approach requiring extended pattern",
+    "duration_seconds": 820.5,
+    "rows": 16410,
+    "timestep_s": 0.05,
+    "max_altitude_m": 4999.66,
+    "final_contact_force_n": 9464.1,
+    "wind_summary_mps": {
+      "max_abs_xy": 11.29,
+      "mean_x": 1.9876063375990252,
+      "mean_y": 8.03125716026813
+    },
+    "non_nominal_states": [
+      "wind_warning"
+    ]
+  },
+  "power_anomaly": {
+    "description": "Power system failure during descent phase",
+    "duration_seconds": 884.0,
+    "rows": 17681,
+    "timestep_s": 0.05,
+    "max_altitude_m": 4999.7,
+    "final_contact_force_n": 11260.51,
+    "wind_summary_mps": {
+      "max_abs_xy": 6.37,
+      "mean_x": 4.069270403257733,
+      "mean_y": 1.9872620326904586
+    },
+    "non_nominal_states": [
+      "emergency_power"
+    ]
+  },
+  "comm_blackout": {
+    "description": "Communication loss during critical approach",
+    "duration_seconds": 884.3,
+    "rows": 17687,
+    "timestep_s": 0.05,
+    "max_altitude_m": 4999.7,
+    "final_contact_force_n": 9542.38,
+    "wind_summary_mps": {
+      "max_abs_xy": 6.3,
+      "mean_x": 3.478890710691468,
+      "mean_y": -1.531542375756205
+    },
+    "non_nominal_states": []
+  }
+}

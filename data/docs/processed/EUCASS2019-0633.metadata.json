@@ -1,0 +1,18 @@
+{
+  "engine": "pymupdf4llm",
+  "filetype": "pdf",
+  "pages": 15,
+  "pdf_metadata": {
+    "format": "PDF 1.5",
+    "title": "",
+    "author": "",
+    "subject": "",
+    "keywords": "",
+    "creator": "TeX",
+    "producer": "pdfTeX-1.40.19",
+    "creationDate": "D:20191017084353+02'00'",
+    "modDate": "D:20191017084353+02'00'",
+    "trapped": "",
+    "encryption": null
+  }
+}
