@@ -282,4 +282,4 @@ pnpm install                        # uses the pinned pnpm for this project
 ```bash
 pnpm dev
 ```
-# -> FastAPI on :8000, Next on :3000
+
