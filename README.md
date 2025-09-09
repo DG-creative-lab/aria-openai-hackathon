@@ -45,6 +45,7 @@ aria-space-rider/
 │  ├─ app.py                        # FastAPI app + startup
 │  ├─ settings.py                   # env & config
 │  ├─ api/
+│  │  ├─ routes_knowledge.py 
 │  │  ├─ routes_playback.py         # start/stop/list scenarios
 │  │  ├─ routes_plan.py             # approve/modify/reject; stream plan SSE
 │  │  ├─ routes_events.py           # SSE: ticks, anomalies, decisions
@@ -268,3 +269,17 @@ The governor trims that bundle to stay inside the token budget.
 The LLM returns compact JSON: {action, reasoning, risk, confidence, references}.
 
 ⸻
+### to run the frontend 
+
+1. Frontend deps
+```bash
+cd frontend
+corepack enable                     # turn on the shims
+pnpm -v                             # Corepack fetches the pinned pnpm version
+pnpm install                        # uses the pinned pnpm for this project
+```
+2. Run both
+```bash
+pnpm dev
+```
+# -> FastAPI on :8000, Next on :3000

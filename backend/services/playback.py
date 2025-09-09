@@ -1,8 +1,7 @@
-# backend/services/playback.py
 # CSV → 20 Hz playback + 1 Hz planner + SSE + metrics
 from __future__ import annotations
 
-import asyncio, time, json
+import asyncio, time, json, os, sqlite3
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional, Dict, Any, List
@@ -14,10 +13,16 @@ from ..api.routes_admin import ABLATION_FLAGS
 from .metrics import MetricsTracker
 from . import planner as planner_mod  # expects planner.tick(...)
 from ..aria.memory import store as mem_store
+from ..aria.memory.distill import distill_episode_to_lesson
 
+# NEW: event detector
+from .events import EventDetector
 
 DATA_DIR = Path("data/telemetry")
 DB_PATH  = Path("data/aria.sqlite")
+
+# Toggle: distill an episode into a lesson after each run
+DISTILL_AFTER_RUN = os.getenv("DISTILL_AFTER_RUN", "1") != "0"
 
 
 @dataclass
@@ -41,6 +46,21 @@ class PlaybackService:
         self.state = RunState()
         self.metrics = MetricsTracker()
         self._stop_evt = asyncio.Event()
+        self.events = EventDetector()  # NEW
+
+    # ---------- tiny episodic logger ----------
+    def _elog(self, ts: float, kind: str, text: str, data: Optional[dict] = None) -> None:
+        """Append a sparse episodic row via the central store helper."""
+        try:
+            mem_store.episodic_append(
+                db_path=str(DB_PATH),
+                kind=kind,
+                text=text,
+                data=data or {},
+                ts=float(ts),
+            )
+        except Exception as e:
+            print(f"[episodic_log] warn: {e}")
 
     def list_scenarios(self) -> List[Dict[str, Any]]:
         info_file = DATA_DIR / "scenario_info.json"
@@ -104,6 +124,8 @@ class PlaybackService:
 
         # broadcast start
         await publish_event("run_started", {"scenario": self.state.scenario_key, "dt": dt})
+        # episodic: run start
+        self._elog(0.0, "event", f"run_started:{self.state.scenario_key}", {"dt": dt})
 
         started = time.perf_counter()
         for i, row in df.iterrows():
@@ -117,8 +139,14 @@ class PlaybackService:
             # update metrics from telemetry
             self.metrics.update_from_telem({**telem, "pos_y_m": row.get("pos_y_m", 0.0)})
 
-            # simple anomaly detector
-            self._maybe_emit_anomaly(telem)
+            # NEW: unified event detection
+            for ev in self.events.update(telem):
+                # publish and log
+                if ev["kind"] in ("crosswind_high", "descent_rate_high_near_ground"):
+                    asyncio.create_task(publish_event("anomaly", ev))
+                else:
+                    asyncio.create_task(publish_event("event", ev))
+                self._elog(telem["t"], "event", ev["kind"], ev)
 
             # planner tick @ 1 Hz (based on CSV 't' if exists)
             t_now = float(row["t"]) if "t" in row else (i * dt)
@@ -136,20 +164,49 @@ class PlaybackService:
                 latency_ms = (time.perf_counter() - t0) * 1000.0
                 self.metrics.note_plan_latency(latency_ms)
                 await publish_event("plan_proposed", plan)
+                # episodic: decision
+                plan_text = (
+                    plan.get("title")
+                    or plan.get("summary")
+                    or plan.get("decision_text")
+                    or "plan_proposed"
+                )
+                self._elog(t_now, "decision", str(plan_text), plan)
                 # periodic metrics snapshot
                 await publish_event("metrics_update", self.metrics.snapshot())
 
             # maintain realtime cadence
-            # compute elapsed since loop start to keep wall-time aligned with CSV 't'
             elapsed_wall = time.perf_counter() - started
             target_wall = (i + 1) * dt
             sleep_s = max(0.0, target_wall - elapsed_wall)
             await asyncio.sleep(sleep_s)
 
         # finalize
+        snap = self.metrics.snapshot()
         self.metrics.finish_run()
-        await publish_event("metrics_update", self.metrics.snapshot())
+        await publish_event("metrics_update", snap)
         await publish_event("run_finished", {"scenario": self.state.scenario_key})
+        # episodic: outcome
+        last_t = float(df["t"].iloc[-1]) if "t" in df.columns else (len(df) * dt)
+        self._elog(last_t, "outcome", f"run_finished:{self.state.scenario_key}", snap)
+
+        # optional distillation step
+        if DISTILL_AFTER_RUN:
+            try:
+                meta_path = DATA_DIR / "scenario_info.json"
+                scenario_meta = {"scenario_key": self.state.scenario_key, "metrics": snap}
+                if meta_path.exists():
+                    try:
+                        info = json.loads(meta_path.read_text())
+                        if self.state.scenario_key in info:
+                            scenario_meta["scenario_info"] = info[self.state.scenario_key]
+                    except Exception:
+                        pass
+                lesson_id = distill_episode_to_lesson(str(DB_PATH), scenario_meta)
+                await publish_event("distilled_lesson", {"lesson_id": lesson_id, "scenario": self.state.scenario_key})
+            except Exception as e:
+                print(f"[distill] warn: {e}")
+
         self.state.running = False
 
     def _row_to_telem(self, row) -> Dict[str, Any]:
@@ -170,6 +227,8 @@ class PlaybackService:
             "contact_flag": int(get(row, ["contact_flag"], 0)),
             "contact_force_n": float(get(row, ["contact_force_n"], 0.0)),
             "phase": str(get(row, ["phase"], "")),
+            # NEW: pass through comm status for eventing if present in CSV
+            "comm_status": (str(row.get("comm_status", "")) or None),
         }
 
     def _summarize_for_planner(self, row) -> tuple[Dict[str, Any], str]:
@@ -193,13 +252,6 @@ class PlaybackService:
         else:
             query = "descent pattern and base leg wind limits"
         return state, query
-
-    def _maybe_emit_anomaly(self, telem: Dict[str, Any]):
-        crosswind = (telem["wind_y_mps"] ** 2) ** 0.5
-        if crosswind > 8.0:
-            asyncio.create_task(publish_event("anomaly", {"kind": "crosswind_high", "wind_y": telem["wind_y_mps"]}))
-        if telem["vertical_speed_mps"] < -6.5 and telem["altitude_agl_m"] < 50:
-            asyncio.create_task(publish_event("anomaly", {"kind": "descent_rate_high_near_ground", "vz": telem["vertical_speed_mps"]}))
 
 
 # Singleton

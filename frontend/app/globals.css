@@ -1,0 +1,77 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* === Cosmos / Labs Theme === */
+@layer base {
+  :root {
+    --background: 220 14% 97%;
+    --foreground: 220 15% 10%;
+    --card: 0 0% 100%;
+    --card-foreground: 220 15% 10%;
+    --muted: 220 14% 95%;
+    --muted-foreground: 220 10% 40%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 220 15% 10%;
+    --border: 220 13% 90%;
+    --input: 220 13% 90%;
+    --ring: 160 84% 39%;
+    --primary: 160 84% 39%;
+    --primary-foreground: 160 100% 7%;
+    --secondary: 220 14% 92%;
+    --secondary-foreground: 220 15% 15%;
+    --accent: 160 76% 35%;
+    --accent-foreground: 160 100% 95%;
+    --destructive: 0 84% 60%;
+    --destructive-foreground: 0 0% 98%;
+    --radius: 1rem;
+  }
+
+  .dark {
+    --background: 220 40% 6%;
+    --foreground: 220 15% 92%;
+    --card: 220 26% 12%;
+    --card-foreground: 220 15% 92%;
+    --muted: 220 26% 13%;
+    --muted-foreground: 220 10% 70%;
+    --popover: 220 40% 6%;
+    --popover-foreground: 220 15% 92%;
+    --border: 220 28% 20%;
+    --input: 220 28% 20%;
+    --ring: 160 84% 39%;
+    --primary: 160 84% 39%;
+    --primary-foreground: 160 100% 7%;
+    --secondary: 220 28% 18%;
+    --secondary-foreground: 220 15% 92%;
+    --accent: 160 70% 40%;
+    --accent-foreground: 160 100% 9%;
+    --destructive: 0 72% 50%;
+    --destructive-foreground: 0 0% 98%;
+  }
+
+  * { @apply border-border; }
+  body { @apply bg-background text-foreground font-sans; }
+}
+
+/* Reusable panels */
+@layer components {
+  .panel {
+    @apply rounded-2xl border bg-card shadow-soft;
+  }
+  .panel-header {
+    @apply select-none border-b px-4 py-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground;
+  }
+  .panel-body {
+    @apply p-4;
+  }
+}
+
+/* Utilities */
+@layer utilities {
+  .glass { @apply bg-white/5 dark:bg-white/5 backdrop-blur-md border border-white/10 rounded-2xl; }
+  .soft-shadow { box-shadow: 0 10px 40px rgba(0,0,0,.25); }
+  .shadow-soft { box-shadow: 0 10px 40px rgba(17,24,39,0.08); }
+  .custom-scroll::-webkit-scrollbar { width: 8px; height: 8px; }
+  .custom-scroll::-webkit-scrollbar-thumb { background-color: hsl(var(--border)); border-radius: 9999px; }
+  .custom-scroll::-webkit-scrollbar-track { background: transparent; }
+}

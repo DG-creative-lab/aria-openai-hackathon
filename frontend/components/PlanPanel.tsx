@@ -1,70 +1,104 @@
-// frontend/components/PlanPanel.tsx
 "use client";
 
 import React from "react";
+import { connectSSE, type PlanEvent } from "../lib/events";
 
 type Plan = {
   id: string;
-  phase: "descent" | "base_leg" | "final_approach" | "flare";
+  phase: string;
   action: string;
   parameters?: Record<string, number>;
   checks?: string[];
   risk: "low" | "medium" | "high" | string;
   confidence: number;
   references?: string[];
-  rationale: string;
+  reasoning?: string;
+  rationale?: string;
   created_at?: number;
 };
 
-type Props = {
-  plan?: Plan | null;
-  backendBase?: string; // e.g., process.env.NEXT_PUBLIC_BACKEND_URL
-};
+type Props = { plan?: Plan | null; backendBase?: string };
 
-export default function PlanPanel({ plan, backendBase = "" }: Props) {
-  const [useDocs, setUseDocs] = React.useState<boolean>(() => {
-    const v = localStorage.getItem("aria.useDocs");
-    return v ? v === "1" : true;
-  });
-  const [useLessons, setUseLessons] = React.useState<boolean>(() => {
-    const v = localStorage.getItem("aria.useLessons");
-    return v ? v === "1" : true;
-  });
-  const [useGate, setUseGate] = React.useState<boolean>(() => {
-    const v = localStorage.getItem("aria.useGate");
-    return v ? v === "1" : true;
-  });
+export default function PlanPanel({
+  plan,
+  backendBase = process.env.NEXT_PUBLIC_API_BASE || "",
+}: Props) {
+  const [livePlan, setLivePlan] = React.useState<PlanEvent | null>(null);
 
   React.useEffect(() => {
+    if (plan) return;
+    const off = connectSSE({ plan_proposed: (p) => setLivePlan(p) });
+    return off;
+  }, [plan]);
+
+  const effectivePlan: Plan | null =
+    plan ?? (livePlan as unknown as Plan | null) ?? null;
+
+  // --- Ablations ---
+  const [useDocs, setUseDocs] = React.useState(() =>
+    typeof window !== "undefined"
+      ? localStorage.getItem("aria.useDocs") === "1"
+      : true
+  );
+  const [useLessons, setUseLessons] = React.useState(() =>
+    typeof window !== "undefined"
+      ? localStorage.getItem("aria.useLessons") === "1"
+      : true
+  );
+  const [useGate, setUseGate] = React.useState(() =>
+    typeof window !== "undefined"
+      ? localStorage.getItem("aria.useGate") === "1"
+      : true
+  );
+
+  React.useEffect(() => {
+    if (typeof window === "undefined") return;
     localStorage.setItem("aria.useDocs", useDocs ? "1" : "0");
     localStorage.setItem("aria.useLessons", useLessons ? "1" : "0");
     localStorage.setItem("aria.useGate", useGate ? "1" : "0");
-    // Persist flags to backend so planner can respect ablations
     void fetch(`${backendBase}/api/admin/flags`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ use_docs: useDocs, use_lessons: useLessons, use_gate: useGate }),
-    });
+      body: JSON.stringify({
+        use_docs: useDocs,
+        use_lessons: useLessons,
+        use_gate: useGate,
+      }),
+    }).catch(() => {});
   }, [useDocs, useLessons, useGate, backendBase]);
 
+  // --- Risk badge ---
+  const riskColor =
+    effectivePlan?.risk === "low"
+      ? "bg-green-100 text-green-800 border-green-300 dark:bg-green-950/30 dark:text-green-300 dark:border-green-700"
+      : effectivePlan?.risk === "high"
+      ? "bg-red-100 text-red-800 border-red-300 dark:bg-red-950/30 dark:text-red-300 dark:border-red-700"
+      : "bg-yellow-100 text-yellow-800 border-yellow-300 dark:bg-yellow-950/30 dark:text-yellow-300 dark:border-yellow-700";
+
+  const reasoning = effectivePlan?.reasoning ?? effectivePlan?.rationale ?? "";
+
+  // --- Actions ---
   const approve = async () => {
-    if (!plan) return;
+    if (!effectivePlan) return;
     await fetch(`${backendBase}/api/plan/approve`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ plan_id: plan.id, human_action: "approved" }),
+      body: JSON.stringify({
+        plan_id: effectivePlan.id,
+        human_action: "approved",
+      }),
     });
   };
 
   const modify = async () => {
-    if (!plan) return;
-    const newAction = prompt("Modify action:", plan.action);
+    if (!effectivePlan) return;
+    const newAction = prompt("Modify action:", effectivePlan.action);
     if (newAction === null) return;
     await fetch(`${backendBase}/api/plan/approve`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        plan_id: plan.id,
+        plan_id: effectivePlan.id,
         human_action: "modified",
         modification: { action: newAction },
       }),
@@ -72,110 +106,137 @@ export default function PlanPanel({ plan, backendBase = "" }: Props) {
   };
 
   const reject = async () => {
-    if (!plan) return;
+    if (!effectivePlan) return;
     const note = prompt("Reason for rejection?", "");
     await fetch(`${backendBase}/api/plan/reject`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ plan_id: plan.id, human_action: "rejected", note }),
+      body: JSON.stringify({
+        plan_id: effectivePlan.id,
+        human_action: "rejected",
+        note,
+      }),
     });
   };
 
-  // Styling helpers
-  const riskColor =
-    plan?.risk === "low" ? "bg-green-100 text-green-800 border-green-300" :
-    plan?.risk === "high" ? "bg-red-100 text-red-800 border-red-300" :
-    "bg-yellow-100 text-yellow-800 border-yellow-300";
-
   return (
-    <div className="w-full max-w-xl rounded-2xl border p-4 shadow-sm bg-white">
-      <div className="mb-3 flex items-center justify-between">
-        <h3 className="text-lg font-semibold">ARIA Plan</h3>
-        {/* Ablation toggles */}
-        <div className="flex items-center gap-3">
-          <Toggle label="Docs" checked={useDocs} onChange={setUseDocs} />
-          <Toggle label="Lessons" checked={useLessons} onChange={setUseLessons} />
-          <Toggle label="Gate" checked={useGate} onChange={setUseGate} />
-        </div>
+    <div className="flex h-full w-full flex-col">
+      {/* toggle row only */}
+      <div className="flex items-center justify-end gap-3 border-b px-4 py-2">
+        <Toggle label="Docs" checked={useDocs} onChange={setUseDocs} />
+        <Toggle label="Lessons" checked={useLessons} onChange={setUseLessons} />
+        <Toggle label="Gate" checked={useGate} onChange={setUseGate} />
       </div>
 
-      {!plan ? (
-        <div className="text-sm text-gray-500">No plan yet. Waiting for next tick…</div>
-      ) : (
-        <>
-          <div className={`rounded-xl border ${riskColor} px-3 py-2 mb-3`}>
-            <div className="flex items-center justify-between">
-              <div className="text-sm font-medium">Phase: {plan.phase}</div>
-              <div className="text-sm">
-                Risk: <b>{plan.risk}</b> · Conf: <b>{(plan.confidence ?? 0).toFixed(2)}</b>
+      {/* content */}
+      <div className="flex-1 overflow-y-auto p-4">
+        {!effectivePlan ? (
+          <div className="text-sm text-muted-foreground">
+            No plan yet. Waiting for next tick…
+          </div>
+        ) : (
+          <>
+            <div className={`mb-3 rounded-xl border px-3 py-2 ${riskColor}`}>
+              <div className="flex items-center justify-between">
+                <div className="text-sm font-medium">
+                  Phase: {effectivePlan.phase}
+                </div>
+                <div className="text-sm">
+                  Risk: <b>{effectivePlan.risk}</b> · Conf:{" "}
+                  <b>{(effectivePlan.confidence ?? 0).toFixed(2)}</b>
+                </div>
+              </div>
+              <div className="mt-1 text-sm">
+                <span className="font-medium">Action:</span>{" "}
+                {effectivePlan.action}
               </div>
             </div>
-            <div className="mt-1 text-sm">
-              <span className="font-medium">Action:</span> {plan.action}
-            </div>
-          </div>
 
-          {plan.parameters && Object.keys(plan.parameters).length > 0 && (
-            <div className="mb-2">
-              <div className="text-xs uppercase text-gray-500">Parameters</div>
-              <div className="text-sm">
-                {Object.entries(plan.parameters).map(([k, v]) => (
-                  <span key={k} className="mr-3 inline-block rounded bg-gray-100 px-2 py-0.5 text-xs">
-                    {k}: {typeof v === "number" ? v.toFixed(2) : String(v)}
-                  </span>
-                ))}
+            {effectivePlan.parameters &&
+              Object.keys(effectivePlan.parameters).length > 0 && (
+                <div className="mb-2">
+                  <div className="text-xs uppercase text-muted-foreground">
+                    Parameters
+                  </div>
+                  <div className="text-sm">
+                    {Object.entries(effectivePlan.parameters).map(([k, v]) => (
+                      <span
+                        key={k}
+                        className="mr-2 inline-block rounded bg-muted px-2 py-0.5 text-xs"
+                      >
+                        {k}:{" "}
+                        {typeof v === "number" ? v.toFixed(2) : String(v)}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+            {effectivePlan.checks?.length ? (
+              <div className="mb-2">
+                <div className="text-xs uppercase text-muted-foreground">
+                  Checks
+                </div>
+                <ul className="list-disc pl-5 text-sm">
+                  {effectivePlan.checks.map((c, i) => (
+                    <li key={i}>{c}</li>
+                  ))}
+                </ul>
               </div>
-            </div>
-          )}
+            ) : null}
 
-          {plan.checks && plan.checks.length > 0 && (
-            <div className="mb-2">
-              <div className="text-xs uppercase text-gray-500">Checks</div>
-              <ul className="list-disc pl-5 text-sm">
-                {plan.checks.map((c, i) => <li key={i}>{c}</li>)}
-              </ul>
-            </div>
-          )}
-
-          <div className="mb-2">
-            <div className="text-xs uppercase text-gray-500">Rationale</div>
-            <p className="text-sm">{plan.rationale}</p>
-          </div>
-
-          {plan.references && plan.references.length > 0 && (
-            <div className="mb-2">
-              <div className="text-xs uppercase text-gray-500">References</div>
-              <div className="flex flex-wrap gap-2">
-                {plan.references.map((r) => (
-                  <span key={r} className="rounded bg-blue-50 px-2 py-0.5 text-xs text-blue-700 border border-blue-200">
-                    {r}
-                  </span>
-                ))}
+            {reasoning && (
+              <div className="mb-2">
+                <div className="text-xs uppercase text-muted-foreground">
+                  Reasoning
+                </div>
+                <p className="text-sm">{reasoning}</p>
               </div>
-            </div>
-          )}
+            )}
 
-          <div className="mt-4 flex gap-2">
-            <button
-              onClick={approve}
-              className="rounded-xl border border-green-300 bg-green-50 px-3 py-1.5 text-sm font-medium text-green-800 hover:bg-green-100"
-            >
-              Approve
-            </button>
-            <button
-              onClick={modify}
-              className="rounded-xl border border-amber-300 bg-amber-50 px-3 py-1.5 text-sm font-medium text-amber-800 hover:bg-amber-100"
-            >
-              Modify
-            </button>
-            <button
-              onClick={reject}
-              className="rounded-xl border border-red-300 bg-red-50 px-3 py-1.5 text-sm font-medium text-red-800 hover:bg-red-100"
-            >
-              Reject
-            </button>
-          </div>
-        </>
+            {effectivePlan.references?.length ? (
+              <div className="mb-2">
+                <div className="text-xs uppercase text-muted-foreground">
+                  References
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  {effectivePlan.references.map((r) => (
+                    <span
+                      key={r}
+                      className="rounded border border-blue-300 bg-blue-50 px-2 py-0.5 text-xs text-blue-700 dark:border-blue-700 dark:bg-blue-950/30 dark:text-blue-300"
+                    >
+                      {r}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            ) : null}
+          </>
+        )}
+      </div>
+
+      {/* footer */}
+      {effectivePlan && (
+        <div className="flex gap-2 border-t px-4 py-3">
+          <button
+            onClick={approve}
+            className="rounded-xl border border-green-300 bg-green-50 px-3 py-1.5 text-sm font-medium text-green-800 hover:bg-green-100 dark:border-green-700 dark:bg-green-950/30 dark:text-green-300"
+          >
+            Approve
+          </button>
+          <button
+            onClick={modify}
+            className="rounded-xl border border-amber-300 bg-amber-50 px-3 py-1.5 text-sm font-medium text-amber-800 hover:bg-amber-100 dark:border-amber-700 dark:bg-amber-950/30 dark:text-amber-300"
+          >
+            Modify
+          </button>
+          <button
+            onClick={reject}
+            className="rounded-xl border border-red-300 bg-red-50 px-3 py-1.5 text-sm font-medium text-red-800 hover:bg-red-100 dark:border-red-700 dark:bg-red-950/30 dark:text-red-300"
+          >
+            Reject
+          </button>
+        </div>
       )}
     </div>
   );
@@ -191,7 +252,7 @@ function Toggle({
   onChange: (v: boolean) => void;
 }) {
   return (
-    <label className="flex items-center gap-1.5 text-xs text-gray-700">
+    <label className="flex items-center gap-1.5 text-xs text-muted-foreground">
       <input
         type="checkbox"
         className="h-4 w-4 accent-blue-600"
@@ -202,11 +263,5 @@ function Toggle({
     </label>
   );
 }
-
-
-//This component:
-//	•	Persists Docs / Lessons / Gate flags to localStorage.
-//	•	POSTs them to POST /api/admin/flags (so the backend planner can ablate features live).
-//	•	Calls POST /api/plan/approve|reject with the current plan id.
 
 
