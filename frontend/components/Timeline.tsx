@@ -1,3 +1,4 @@
+// frontend/components/Timeline.tsx
 "use client";
 
 import React from "react";
@@ -11,8 +12,12 @@ type Row =
 
 type Props = { backendBase?: string };
 
+// Keep the list bounded for perf & UX
+const MAX_ROWS = 200;
+
 export default function Timeline(_props: Props) {
   const [rows, setRows] = React.useState<Row[]>([]);
+  const scrollRef = React.useRef<HTMLDivElement | null>(null);
 
   React.useEffect(() => {
     const stop = connectSSE({
@@ -43,31 +48,44 @@ export default function Timeline(_props: Props) {
   function push(r: Row) {
     setRows((prev) => {
       const next = [r, ...prev];
-      return next.slice(0, 200); // keep last 200
+      return next.slice(0, MAX_ROWS);
     });
+    // keep scroll pinned to top (newest at top); no-op if user scrolled
+    if (scrollRef.current) {
+      // If the user is near the top (within ~20px), pin to top after update
+      if (scrollRef.current.scrollTop <= 20) {
+        queueMicrotask(() => { if (scrollRef.current) scrollRef.current.scrollTop = 0; });
+      }
+    }
   }
 
   return (
-    <div className="w-full max-w-xl rounded-2xl border p-4 bg-card shadow-soft glass">
-      <ul className="space-y-2">
-        {rows.map((r, i) => (
-          <li key={i} className="flex items-start gap-2">
-            <Badge kind={r.kind} />
-            <div className="flex-1">
-              <div className="text-sm">{r.text}</div>
-              <div className="text-xs text-gray-500">
-                {new Date(r.at).toLocaleTimeString()}
-                {r.kind === "plan" && typeof r.conf === "number" ? (
-                  <span className="ml-2">• conf {r.conf.toFixed(2)}</span>
-                ) : null}
+    <div className="h-full min-h-0 flex flex-col rounded-2xl border bg-card shadow-soft glass">
+      {/* Optional header row could go here */}
+      <div
+        ref={scrollRef}
+        className="flex-1 min-h-0 overflow-auto overscroll-contain px-4 py-4"
+      >
+        <ul className="space-y-2">
+          {rows.map((r, i) => (
+            <li key={i} className="flex items-start gap-2">
+              <Badge kind={r.kind} />
+              <div className="flex-1">
+                <div className="text-sm">{r.text}</div>
+                <div className="text-xs text-gray-500">
+                  {new Date(r.at).toLocaleTimeString()}
+                  {r.kind === "plan" && typeof r.conf === "number" ? (
+                    <span className="ml-2">• conf {r.conf.toFixed(2)}</span>
+                  ) : null}
+                </div>
               </div>
-            </div>
-          </li>
-        ))}
-        {rows.length === 0 && (
-          <li className="text-sm text-gray-500">No events yet — start a scenario to see activity.</li>
-        )}
-      </ul>
+            </li>
+          ))}
+          {rows.length === 0 && (
+            <li className="text-sm text-gray-500">No events yet — start a scenario to see activity.</li>
+          )}
+        </ul>
+      </div>
     </div>
   );
 }

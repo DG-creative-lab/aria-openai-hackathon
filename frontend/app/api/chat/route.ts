@@ -1,23 +1,16 @@
-import { NextRequest } from "next/server";
+import { groq } from '@ai-sdk/groq';
+import { convertToModelMessages, streamText, UIMessage } from 'ai';
 
-export async function POST(req: NextRequest) {
-  const base = process.env.NEXT_PUBLIC_API_BASE!;
-  const body = await req.json();
+export const runtime = 'nodejs';
+export const maxDuration = 30;
 
-  // Forward to your backend chat endpoint
-  const r = await fetch(`${base}/api/chat`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
+const MODEL = process.env.GROQ_MODEL || 'openai/gpt-oss-20b';
+
+export async function POST(req: Request) {
+  const { messages }: { messages: UIMessage[] } = await req.json();
+  const result = streamText({
+    model: groq(MODEL),
+    messages: convertToModelMessages(messages),
   });
-
-  // Backend returns { reply: string } (non-streaming)
-  if (!r.ok) {
-    return new Response(JSON.stringify({ error: await r.text() }), {
-      status: r.status,
-      headers: { "Content-Type": "application/json" },
-    });
-  }
-  const data = await r.json();
-  return Response.json(data);
+  return result.toTextStreamResponse();
 }

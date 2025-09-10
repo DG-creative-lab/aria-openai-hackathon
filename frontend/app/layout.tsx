@@ -1,4 +1,4 @@
-// frontend/app/layout.tsx (RootLayout)
+// frontend/app/layout.tsx
 import "./globals.css";
 import ThemeProvider from "../components/theme-provider";
 import AppHeader from "../components/AppHeader";
@@ -9,12 +9,10 @@ export default function RootLayout({ children }: { children: ReactNode }) {
     <html lang="en" suppressHydrationWarning>
       <body className="bg-background text-foreground antialiased">
         <ThemeProvider>
-          {/* Fill viewport and let <main> claim the rest */}
-          <div className="min-h-screen flex flex-col">
+          {/* Exactly one viewport tall: header (auto) + main (fills rest) */}
+          <div className="h-screen grid grid-rows-[auto,1fr]">
             <AppHeader />
-            <main className="flex-1 mx-auto max-w-7xl px-4 py-6 overflow-hidden">
-              {children}
-            </main>
+            <main className="min-h-0 overflow-hidden">{children}</main>
           </div>
         </ThemeProvider>
       </body>

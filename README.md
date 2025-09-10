@@ -1,285 +1,291 @@
-# ARIA — Space Rider Mission Control Agent
+# ARIA Mission Control — GPT-OSS Edition 🛩️
 
-*An offline, memory-augmented reasoning assistant for parafoil landing decision support — powered by GPT-OSS on Groq.*
-
-**Category:** Best Local Agent (secondary: For Humanity)  
-**Tagline:** Memory + safety gates + human-in-the-loop → measurably safer landings on the *second* run.
+A real-time mission UI that plans, reasons, and chats using open-weights LLMs.
 
 ---
 
-## Why this matters
+## ✨ What it is
 
-Space missions face comms gaps, uncertainty, and time pressure. ARIA shows how a small open model (gpt-oss-20b) can:
-- **Retrieve procedures & lessons**, reason over telemetry, and
-- **Propose safe, auditable next actions** with **risk** and **confidence**, while
-- **Improving across runs** via episodic→semantic memory — **no fine-tuning**.
+ARIA is a tiny autonomy stack with a clean UI:
 
-We focus the demo on **AI reasoning, memory, and human-AI collaboration**. Telemetry is **pre-recorded** to keep the build reproducible and fully offline.
+- **Backend (FastAPI)** streams synthetic telemetry and emits plans via SSE.
+- **A planner** builds a compact working-memory (recent events + distilled lessons + rephrased docs) and asks an OSS model for a JSON Plan.
+- **A safety gate** vets actions.
+- **A Next.js/React frontend** renders Gauges, Plan, Timeline, and a Chat (Vercel AI SDK v5) that also hits the GPT-OSS model.
+
+Everything is open and swappable; the only paid thing is your LLM key.
+
+---
+
+## 🧠 Why GPT-OSS
+
+- **Open weights & portability** – run on Groq (for low latency), an OpenRouter provider, or your own vLLM/llama.cpp server.
+- **Cost control** – small JSON plans + retrieval keep token usage tiny.
+- **Auditable plans** – models output a strict JSON plan that we validate; working memory is logged.
+
+**Default model (demo):** gpt-oss-20b (via Groq).
+You can substitute llama-3.1-8b-instant, llama-3.1-70b, or any OSS model exposed through an OpenAI-style endpoint.
 
 ---
 
-## What’s included
+## 🗺️ Architecture (at a glance)
 
-- **Playback Service** — streams CSV telemetry at real time (20 Hz) and emits 1 Hz “reasoning” ticks.
-- **Memory Fabric** — SQLite + FTS5 (episodic log, semantic lessons, docs RAG, working memory).
-- **Safety Gate** — redlines (bank, crosswind, flare window, descent rate) + confidence fusion.
-- **ARIA Planner** — Groq OpenAI-compatible call to GPT-OSS (20B by default).
-- **Human-AI UI** — Plan card (risk & confidence), Approve/Modify/Reject, Timeline, Before/After metrics.
-
----
-## 📁 Repository Structure
-
-```bash
-aria-space-rider/
-├─ README.md
-├─ .env.example
-├─ Makefile
-├─ data/
-│  ├─ telemetry/
-│  └─ docs/
-│     ├─ space_rider_manual/
-│     └─ processed/                 # .md from PyMuPDF4LLM
-│
-├─ backend/
-│  ├─ requirements.txt
-│  ├─ app.py                        # FastAPI app + startup
-│  ├─ settings.py                   # env & config
-│  ├─ api/
-│  │  ├─ routes_knowledge.py 
-│  │  ├─ routes_playback.py         # start/stop/list scenarios
-│  │  ├─ routes_plan.py             # approve/modify/reject; stream plan SSE
-│  │  ├─ routes_events.py           # SSE: ticks, anomalies, decisions
-│  │  └─ routes_admin.py            # reset memory, ingest docs
-│  ├─ services/
-│  │  ├─ playback.py                # 20Hz CSV stream; 1Hz ticks
-│  │  ├─ events.py                  # anomaly/phase detectors
-│  │  ├─ planner.py                 # 1Hz loop → compose → call model
-│  │  ├─ plan_schema.py             # Pydantic models (Plan/Decision/Metrics)
-│  │  ├─ safety_gate.py             # redlines, confidence fusion
-│  │  └─ metrics.py                 # before/after, touchdown stats
-│  ├─ aria/
-│  │  ├─ agent.py                   # OpenAI-compatible client (Groq/local)
-│  │  ├─ prompts.py                 # system & few-shot, Chain-of-Draft style
-│  │  └─ memory/
-│  │     ├─ schema.sql
-│  │     ├─ store.py                # SQLite + FTS5 (episodic/semantic/docs)
-│  │     ├─ embeddings.py           # local embeddings (e5-small / MiniLM)
-│  │     ├─ retriever.py            # hybrid retrieval (FTS + embed + recency)
-│  │     ├─ composer.py             # builds working memory; sections + weights
-│  │     ├─ governor.py             # token budget, truncation, summarize
-│  │     ├─ distill.py              # episodic → lessons (semantic)
-│  │     └─ tools.py                # ReAct-lite: doc_search(), recall_lesson()
-│  └─ tools/
-│     ├─ pdf_to_markdown_pymupdf.py # ✅ your light, fast converter
-│     ├─ docs_ingest.py             # chunk .md → docs_fts + embeddings
-│     └─ seed_from_csv.py           # telemetry sanity checks
-│
-├─ frontend/
-│  ├─ package.json
-│  ├─ next.config.mjs
-│  ├─ app/
-│  │  ├─ layout.tsx
-│  │  └─ page.tsx                   # HUD + PlanPanel + Timeline
-│  ├─ components/
-│  │  ├─ PlanPanel.tsx              # plan JSON card (risk, confidence)
-│  │  ├─ Timeline.tsx               # SSE: anomalies/decisions
-│  │  └─ Gauges.tsx                 # alt, vspeed, airspeed, L/D, wind
-│  └─ lib/
-│     ├─ ai.ts                      # Vercel AI SDK client helpers (stream)
-│     └─ events.ts                  # SSE client for /events
-└─ scripts/
-   └─ record_demo.sh
+```
+FastAPI  ──────────────▶  /api/events/stream (SSE) ───▶  Frontend UI
+   │
+   ├─ /api/start?scenario=… ──► telemetry playback
+   ├─ /api/admin/flags      ──► {use_docs,use_lessons,use_gate}
+   └─ planner.tick()
+        ├─ composer.build_working_memory()
+        │    ├─ Retriever.lessons (SQLite FTS5 + vectors)
+        │    ├─ Rephrased cards (QA/facts/lessons, guarded)
+        │    ├─ Raw docs fallback
+        │    └─ Episodic recent log
+        ├─ governor.apply_budget()  (token budget)
+        ├─ prompts.build_messages() (system+user)
+        ├─ OSS model (JSON plan)
+        ├─ safety_gate.vet_plan()
+        └─ episodic log + emit "plan_proposed"
 ```
 
 ---
 
-## Quickstart
+## 🚀 Quick start
 
-### 0) Prereqs
-- Python 3.11+, Node 18+
-- (Optional) Groq account + $25 promo: `OPENAIOSSGROQ2025`
+### 0) Requirements
 
-### 1) Backend
+- Python 3.11+ (we used 3.13)
+- Node 18+ / PNPM
+- SQLite3 with FTS5 (macOS Homebrew default is fine)
 
-```bash
-cd backend
-python -m venv .venv && source .venv/bin/activate
-pip install -r requirements.txt
-cp ../.env.example .env
-# Set GROQ_API_KEY in .env (or run fully offline to use stubbed responses)
-```
-**Run**:
+### 1) Configure keys
+
+Copy env templates and fill your OSS LLM key:
 
 ```bash
-uvicorn app:app --reload --port 8000
+# Backend
+cp .env.example .env
+# set GROQ_API_KEY=... (or OPENAI_API_KEY / OPENROUTER_API_KEY)
+# set MODEL_NAME=gpt-oss-20b   # or llama-3.1-8b-instant, etc.
+
+# Frontend
+cp frontend/.env.local.example frontend/.env.local
+# set NEXT_PUBLIC_API_BASE=http://localhost:8000
+# optional: NEXT_PUBLIC_LLM_MODEL_LABEL="GPT-oss-20B"
 ```
 
-### 2) Frontend
+### 2) Install
 
 ```bash
-cd ../frontend
-npm i
-npm run dev
-# http://localhost:3000
+# frontend deps
+cd frontend && pnpm i && cd ..
+
+# (first time) python deps
+# we used uv/uvicorn in scripts, but pip works too
+pip install -r docs/requirements.txt  # or: uv pip install -r ...
 ```
 
-### 3) Play a scenario
+### 3) Run both (monorepo helper)
 
-```bash
-# list scenarios
-curl http://localhost:8000/scenarios
-# start one
-curl -X POST "http://localhost:8000/start?scenario=crosswind_baseline"
-# stop
-curl -X POST http://localhost:8000/stop
-```
+From repo root:
 
-##### Scenarios included
-
-landing_crosswind_baseline.csv — late flare → hard landing (baseline)
-landing_crosswind_lesson.csv — retrieved lesson → earlier flare/larger base → softer touchdown
-landing_blackout_window.csv — lost-comms window; conservative hold/flare window
-(You can generate these offline from a simulator and keep the CSVs small.)
-
-
-## Environment
-
-Create .env at repo root or backend/.env:
-
-```bash
-
-PORT=8000
-WS_PATH=/ws/telemetry
-TICK_HZ=20                       # playback rate
-REASON_HZ=1                      # reasoning cadence
-
-# Groq / GPT-OSS
-GROQ_API_KEY=your_key_here
-OPENAI_BASE_URL=https://api.groq.com/openai/v1
-GPT_MODEL=openai/gpt-oss-20b     # use 120b for final hero clip if desired
-```
----
-## API overview
-
-GET /scenarios → available telemetry files
-POST /start?scenario=NAME → begin playback
-POST /stop → stop playback
-WS /ws/telemetry → stream {telemetry, plan?, decision?, metrics} updates
-POST /plan/approve → body: {plan_id, modification?}
-POST /plan/reject → body: {plan_id, reason}
-POST /admin/memory/reset → clear episodic/semantic (dev only)
-POST /admin/docs/ingest → (optional) load PDFs into FTS5
-Plan JSON (example)
-
-
-## Memory & reasoning
-
-Episodic: append-only events (anomaly/decision/outcome) sampled ~1 Hz.
-Semantic: distilled “lessons learned” bullets by phase.
-Docs RAG: local FTS5 over Space Rider procedures/checklists.
-Composer: compact prompt = recent events + lessons + top doc chunks + current telemetry.
-Governor: when episodic grows, trigger distillation → keep prompts lean.
-Cadence: model called at 1 Hz or on anomaly; no chain-of-thought logged.
-
-## Safety model
-
-Redlines (tune to CSV): |bank| ≤ 20°, crosswind ≤ 8 m/s, flare 8–12 m AGL, vz@10m ≥ -2.5 m/s.
-Safety Gate downgrades unsafe plans (e.g., “Hold Pattern”) and caps confidence.
-HIL: humans Approve / Modify / Reject every plan; fallback Checklist Mode on LLM timeout.
-
-## Notes
-
-This repo ships with tiny CSVs; large media (PDFs/video) are ignored by git.
-We used Groq’s OpenAI-compatible endpoint for GPT-OSS;
-Not affiliated with ESA; telemetry is synthetic for research/demo.
-
-
-### Data Flow 
-
-```bash
-CSV (data/telemetry/landing_*.csv)  ← your generator (20 Hz rows + t)
-         │
-         ▼ 20 Hz
-PlaybackService._run()
-  ├─ SSE "tick" → Frontend HUD
-  ├─ MetricsTracker.update_from_telem()
-  ├─ _maybe_emit_anomaly() → SSE "anomaly" (when needed)
-  └─ every 1s:
-        state_summary, query
-           │
-           ▼
-        planner.tick()
-           │
-           ├─ composer.build_working_memory()
-           │     ├─ episodic_recent(...)          (SQLite: episodic_log)
-           │     ├─ rephrased_guarded(query,k=4)  (SQLite: docs_rephrased + NLI vs docs)
-           │     │     └─ fallback docs(query)    (SQLite: docs)
-           │     └─ lessons(query,k=1)            (SQLite: lessons)
-           │        ↳ governor trims to token budget
-           │
-           ├─ prompts/system + few-shot + context
-           ├─ agent.call_model()  (Groq GPT-OSS-20B)
-           ├─ safety_gate.vet_plan()
-           ├─ mem_store.episodic_append(kind="decision", data=plan)
-           └─ SSE "plan_proposed" (with references + latency)
-                 │
-                 └─ Frontend (PlanPanel): Approve/Modify/Reject → POST /plan/...
-                      ↳ mem_store.episodic_append(kind="decision", text="approved/...")
-                      ↳ MetricsTracker may note result
-
-... run continues until touchdown ...
-  ├─ MetricsTracker.finish_run()
-  ├─ SSE "metrics_update" (final)
-  ├─ SSE "run_finished"
-  └─ (optional) distill.episodic → lessons (SQLite)
-        ↳ next run retrieves that new lesson automatically
-
-```
-
-SQLite roles
-* docs — raw chunks from manuals/papers; FTS + embeddings; immutable.
-* docs_rephrased — BeyondWeb-style lesson cards/Q&A/facts; preferred snippets; NLI-guarded vs docs.
-* episodic_log — per-run timeline of events/decisions/outcomes; used for RECENT context.
-* lessons — distilled, cross-run “what worked”; retrieved on future runs.
-
-### What the model actually sees each second
-
-state_summary (dict), ex:
-
-```json
-{
-  "altitude_agl_m": 420.0,
-  "vertical_speed_mps": -4.3,
-  "wind_xy_mps": [2.1, 7.8],
-  "phase": "final_approach",
-  "bank_deg": 6.2
-}
-```
-query (short string), ex:
-
-"crosswind landing flare window procedure"
-
-Working memory sections built by the composer:
-* STATE: one-line summary
-* RECENT: last few episodic events (anomalies/decisions)
-* LESSON: top 1 long-term lesson if similar
-* DOC: 1–4 rephrased snippets (NLI-guarded), else a couple of raw doc chunks
-
-The governor trims that bundle to stay inside the token budget.
-The LLM returns compact JSON: {action, reasoning, risk, confidence, references}.
-
-⸻
-### to run the frontend 
-
-1. Frontend deps
-```bash
-cd frontend
-corepack enable                     # turn on the shims
-pnpm -v                             # Corepack fetches the pinned pnpm version
-pnpm install                        # uses the pinned pnpm for this project
-```
-2. Run both
 ```bash
 pnpm dev
 ```
 
+This runs:
+- API at http://localhost:8000
+- Web at http://localhost:3000
+
+If port conflicts happen: kill with `lsof -i :3000 | awk 'NR>1 {print $2}' | xargs kill -9` (same for 8000), then retry.
+
+---
+
+## 🧪 Demo flow (60s smoke test)
+
+1. Open http://localhost:3000.
+2. Start a scenario:
+
+```bash
+curl -X POST 'http://localhost:8000/api/start?scenario=normal_descent'
+```
+
+3. You should see gauges move, timeline events arrive, and a Plan card appear (risk + confidence).
+4. Toggle Docs / Lessons / Gate in the Plan panel and watch the next plan adjust.
+
+If the stream looks idle:
+
+```bash
+curl -X POST http://localhost:8000/api/events/test-ping
+```
+
+---
+
+## 🧩 How GPT-OSS is used
+
+- **JSON Plans** — We call the model in JSON mode (`response_format="json_object"`) for a Plan with:
+  - phase, action, risk, confidence, optional parameters, checks, references, rationale.
+- **Small prompts** — A governor shapes the working memory to ~under 1k tokens typical.
+- **Light tool-use** — If the model returns a tool directive (e.g., `{"tool":"doc_search","query":"flare timing"}`), we run the tool once and do one short follow-up call.
+- **Safety gate** — A rule-based pass clamps or nudges risky outputs before UI.
+
+### Swap models easily
+
+- **Groq (recommended for demo)**
+  - Set `GROQ_API_KEY` and `MODEL_NAME=gpt-oss-20b` 
+- **OpenRouter / vLLM / local llama.cpp**
+  - Set `OPENAI_API_KEY` + `OPENAI_BASE_URL` to your provider/server.
+  - Keep the same `MODEL_NAME` your server exports.
+
+All calls go through a single `aria/agent.py::call_model`, so you can redirect endpoints in one place.
+
+---
+
+## 🗃️ Data layer (SQLite + FTS5)
+
+`data/memory.sqlite` (checked in) ships with:
+
+- `lessons` (+ `lessons_fts`) — distilled bullets
+- `docs_rephrased` (+ `docs_rephrased_fts`) — compact QA/facts/lessons
+- `docs` (+ `docs_fts`) — raw chunks fallback
+- `episodic_log` (+ `episodic_fts`) — run-time events & decisions
+
+Verify quickly:
+
+```bash
+sqlite3 data/memory.sqlite '.tables'
+```
+
+Want to rebuild? Run `sqlite3 data/memory.sqlite < aria/memory/schema.sql` then your own ingest pipeline (see `aria/memory/distill.py` and the `/data/docs` samples).
+
+---
+
+## 🖥️ Frontend
+
+Next.js (App Router), Tailwind v3, dark theme.
+
+### Components
+
+- **Gauges.tsx** — Altitude / VSpeed / Ground speed / Crosswind + tiny trend chart.
+- **PlanPanel.tsx** — Current plan, risk/confidence, ablations (Docs / Lessons / Gate), approve/modify/reject.
+- **Timeline.tsx** — Streamed events (Run/Plan/Anomaly).
+- **(ui)/chat/ChatPanel.tsx** — Vercel AI SDK v5 useChat with DefaultChatTransport → /api/chat (same OSS model).
+- SSE client lives in `lib/events.ts` (`connectSSE(...)`).
+
+---
+
+## 🔌 API (minimal)
+
+- `GET  /api/events/stream` — SSE: tick, plan_proposed, metrics_update, anomaly, run_started, run_finished, distilled_lesson
+- `POST /api/start?scenario=normal_descent` — begin playback
+- `POST /api/admin/flags` — `{use_docs,use_lessons,use_gate}` (booleans)
+- `GET  /api/status` — health snapshot
+- **Frontend chat route:** `POST /api/chat` → streams model text
+
+---
+
+## ⚙️ Key env knobs (backend)
+
+```bash
+# LLM wiring
+GROQ_API_KEY=...
+MODEL_NAME=gpt-oss-20b        # or llama-3.1-8b-instant, etc.
+# Or use OPENAI_API_KEY + OPENAI_BASE_URL
+
+# Planner
+PLAN_TOKEN_BUDGET=900
+PLAN_MAX_COMPLETION=256
+ALLOW_TOOL_REQUESTS=1
+
+# Governor (context budgeting)
+CONTEXT_BUDGET_TOKENS=6000
+CONTEXT_SECTION_ORDER=state,recent,lessons,facts,qa,docs
+# ...see aria/memory/governor.py for per-section caps
+
+# Logging
+LOG_RETRIEVAL=1
+LOG_RETRIEVAL_TOPN=3
+LOG_RETRIEVAL_TEXT=0
+LOG_GOVERNOR=1
+```
+
+**Frontend:**
+
+```bash
+NEXT_PUBLIC_API_BASE=http://localhost:8000
+NEXT_PUBLIC_LLM_MODEL_LABEL="GPT-oss-20B"
+```
+
+---
+
+## 🧪 Testing pieces independently
+
+- **SSE only:**
+  ```bash
+  curl -N http://localhost:8000/api/events/stream
+  ```
+
+- **Planner only (REPL):**
+  ```python
+  import asyncio
+  from backend.services import planner
+  async def test():
+      p = await planner.tick(
+          db_path="data/memory.sqlite",
+          state_summary={"phase":"descent","altitude_agl_m":1200,"vertical_speed_mps":-5.2,"wind_xy_mps":[1.1,-0.4]},
+          query="Safe descent plan?",
+          ablations={"use_docs":True,"use_lessons":True,"use_gate":True}
+      )
+      print(p)
+  asyncio.run(test())
+  ```
+
+- **Chat only:** open UI and use the left chat; it streams via `/api/chat`.
+
+---
+
+## 🛡️ Safety
+
+- `safety_gate.vet_plan()` enforces simple operational rules (e.g., no extreme actions).
+- Plans are auditable: we append every decision to `episodic_log` with working-memory provenance flags.
+
+---
+
+## 🔧 Troubleshooting
+
+- **Frontend runs, but no events**
+  - Check the console of `pnpm dev` for `GET /api/events/stream 200`.
+  - Hit `POST /api/events/test-ping` to verify SSE path.
+
+- **405 Method Not Allowed on /api/admin/flags**
+  - Use POST and send JSON: `{"use_docs":true,"use_lessons":true,"use_gate":true}`
+
+- **Port already in use**
+  ```bash
+  lsof -i :3000 | awk 'NR>1 {print $2}' | xargs kill -9  # (repeat for 8000)
+  ```
+
+- **Model "Submitting…" but no answer**
+  - Verify your key + model name; try `MODEL_NAME=llama-3.1-8b-instant`.
+  - If using a custom server, set `OPENAI_BASE_URL` to your endpoint.
+
+---
+
+## 🛠️ Extending
+
+- Swap models in one place (`aria/agent.py::call_model`) or just change env.
+- Drop in your own docs (markdown/PDF→txt) and (re)distill to `docs_rephrased`.
+- Add critics or a brand policy pass beside `safety_gate`.
+
+---
+
+## 📄 License
+
+MIT for this demo code & prompts. Documents under `data/docs` retain their original licenses.
+
+
+## TL;DR
+
+- **One command:** `pnpm dev`
+- **One key:** your GPT-OSS key (Groq or any OpenAI-compatible host)
+- **One UI:** Realtime gauges, JSON plans, and a mission chat — all powered by open models.
