@@ -6,6 +6,8 @@ import { connectSSE, TickEvent } from "../lib/events";
 import {
   LineChart, Line, XAxis, YAxis, ResponsiveContainer, Tooltip, CartesianGrid, Legend,
 } from "recharts";
+// NEW: import the store
+import { useTelemStore } from "../lib/telemetryStore";
 
 type Props = { backendBase?: string };
 type Point = { t: number; alt: number; vz: number };
@@ -14,6 +16,9 @@ export default function Gauges(_props: Props) {
   const [latest, setLatest] = React.useState<TickEvent["telem"] | null>(null);
   const [series, setSeries] = React.useState<Point[]>([]);
   const startedAtRef = React.useRef<number>(performance.now());
+
+  // NEW: get the setter from the store
+  const setTelem = useTelemStore((s) => s.setTelem);
 
   React.useEffect(() => {
     const stop = connectSSE({
@@ -25,10 +30,20 @@ export default function Gauges(_props: Props) {
           if (next.length > 1200) next.shift(); // ~60s @20Hz
           return next;
         });
+
+        // NEW: publish latest tick to the global telemetry store
+        setTelem({
+          t: telem.t ?? Date.now() / 1000,
+          altitude_agl_m: telem.altitude_agl_m ?? 0,
+          vertical_speed_mps: telem.vertical_speed_mps ?? 0,
+          wind_x_mps: telem.wind_x_mps ?? 0,
+          wind_y_mps: telem.wind_y_mps ?? 0,
+          phase: telem.phase ?? "",
+        });
       },
     });
     return () => stop();
-  }, []);
+  }, [setTelem]);
 
   const alt = latest?.altitude_agl_m ?? 0;
   const vz  = latest?.vertical_speed_mps ?? 0;

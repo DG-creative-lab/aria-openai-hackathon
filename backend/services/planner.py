@@ -27,17 +27,23 @@ def _state_str(state_summary: Dict[str, Any] | str) -> str:
 
 
 def _apply_budget(sections: Dict[str, List[str]], budget_tokens: int) -> Dict[str, List[str]]:
-    """Use governor.apply_budget if available; else trim_sections for compatibility."""
-    if hasattr(governor, "apply_budget"):
-        return governor.apply_budget(
-            sections,
-            budget_tokens=budget_tokens,
-            section_order=["state", "recent", "lessons", "facts", "qa", "docs"],
-            per_section_caps={"lessons": 6, "facts": 6, "qa": 4, "recent": 8, "docs": 3},
-            item_token_cap=220,
-        )
-    elif hasattr(governor, "trim_sections"):
-        return governor.trim_sections(sections, budget_tokens)
+    """
+    Safe budget wrapper. Uses governor.apply_budget if available and
+    never raises. Ensures all canonical keys exist on fallback.
+    """
+    try:
+        if hasattr(governor, "apply_budget"):
+            trimmed, _stats = governor.apply_budget(
+                sections,
+                total_budget_tokens=budget_tokens,
+            )
+            return trimmed
+    except Exception as e:
+        print("[planner] governor failed; using raw sections:", e)
+
+    # Fallback: make sure all keys exist so downstream code is stable
+    for k in ("state", "recent", "lessons", "facts", "qa", "docs"):
+        sections.setdefault(k, [])
     return sections
 
 

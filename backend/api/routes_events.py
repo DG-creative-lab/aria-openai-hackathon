@@ -74,6 +74,7 @@ async def stream(request: Request) -> EventSourceResponse:
                     break
                 try:
                     item = await asyncio.wait_for(queue.get(), timeout=10.0)
+                    print("SSE event:", item["type"], item["payload"])
                     yield {"event": item["type"], "data": json.dumps(item["payload"])}
                 except asyncio.TimeoutError:
                     # no events: send heartbeat to keep proxies happy

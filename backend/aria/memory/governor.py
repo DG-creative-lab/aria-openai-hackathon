@@ -149,61 +149,51 @@ def _summarize_item_llm(section: str, txt: str) -> str:
         return txt
 
 # ---------- core governor ----------
+
 def apply_budget(
     sections: Dict[str, List[str]],
     total_budget_tokens: int | None = None
 ) -> Tuple[Dict[str, List[str]], Dict[str, int]]:
-    """
-    Returns (trimmed_sections, stats)
-    stats has per-section token counts + total.
-    """
     budget = total_budget_tokens or _MODEL_BUDGET_TOKENS
 
-    # Normalize quotas to weights
     total_pct = sum(SECTION_SOFT_QUOTA.get(k, 0) for k in SECTION_ORDER) or 1
     soft_tokens = {k: int(budget * SECTION_SOFT_QUOTA.get(k,0) / total_pct) for k in SECTION_ORDER}
 
-    out: Dict[str, List[str]] = {k: [] for k in sections.keys()}
+    out: Dict[str, List[str]] = {k: [] for k in SECTION_ORDER}  # ensure all canonical keys exist
     used_tokens = 0
-    stats = {f"{k}_tok": 0 for k in sections.keys()}
+    stats = {f"{k}_tok": 0 for k in SECTION_ORDER}
 
-    # First pass: compress items over hard cap; keep within per-section soft budget
+    # pass 1
     for k in SECTION_ORDER:
         items = sections.get(k, []) or []
-        if not items: 
+        if not items:
             continue
-        section_soft = max(80, soft_tokens.get(k, 0))  # ensure a tiny floor
+        section_soft = max(80, soft_tokens.get(k, 0))
         sec_used = 0
         for item in items:
             if used_tokens >= budget:
                 break
-            # hard-cap / compress
             if rough_tokens(item) > ITEM_HARD_CAP.get(k, 99999):
-                # cheap compression; optional LLM refine
                 item = _compress_item(k, item)
                 if rough_tokens(item) > ITEM_HARD_CAP.get(k, 99999):
                     item = _summarize_item_llm(k, item)
-            # absolute clamp if still huge
             if rough_tokens(item) > ITEM_ABS_MAX.get(k, 99999):
-                # last resort: hard trim by chars ~ tokens*4
-                cutoff = ITEM_ABS_MAX[k] * 4
-                item = item[:cutoff].rstrip() + "…"
+                item = item[:ITEM_ABS_MAX[k]*4].rstrip() + "…"
 
             need = rough_tokens(item)
-            # prefer to respect section soft budget; but allow spill if global budget allows
             if (sec_used + need) > section_soft and (used_tokens + need) > budget:
                 break
-            # admit if global budget allows
             if used_tokens + need <= budget:
                 out[k].append(item)
                 used_tokens += need
                 sec_used += need
         stats[f"{k}_tok"] = sec_used
 
-    # If we still have room, do a second pass to allow spillover from remaining sections
+    # pass 2 (spill)
     if used_tokens < budget:
         for k in SECTION_ORDER:
-            items = sections.get(k, [])[len(out[k]):]
+            already = len(out.get(k, []))
+            items = (sections.get(k, []) or [])[already:]
             for item in items:
                 need = rough_tokens(item)
                 if used_tokens + need > budget:
@@ -213,12 +203,10 @@ def apply_budget(
                 stats[f"{k}_tok"] += need
 
     stats["total_tokens"] = used_tokens
-
     if _LOG_GOV:
         print("[governor]", json.dumps({
             "budget": budget,
             "used": used_tokens,
             "by_section": {k: stats.get(f"{k}_tok", 0) for k in SECTION_ORDER}
         }, ensure_ascii=False))
-
     return out, stats

@@ -1,6 +1,10 @@
+# backend/aria/memory/retriever.py
+from __future__ import annotations
+
 from dataclasses import dataclass
-from typing import List, Optional, Sequence
-import sqlite3, time
+from typing import List, Optional, Sequence, Tuple
+import sqlite3
+import time
 import numpy as np
 
 from .embeddings import embed_texts
@@ -10,9 +14,9 @@ from .nli_guard import guard_rephrased_text
 @dataclass
 class RetrievalResult:
     text: str
-    source: str          # e.g., "repr_lesson:EUCASS2019-0633.md#part0" or "doc:EUCASS2019-0633.md#part0"
+    source: str          # e.g., "doc:SRSAOUsersGuide#12" or "repr_lesson:SRSAOUsersGuide.md#p12"
     score: float
-    kind: str            # 'doc' | 'repr_lesson' | 'repr_qa' | 'repr_fact' | 'episodic'
+    kind: str            # 'doc' | 'lesson' | 'repr_lesson' | 'repr_qa' | 'repr_fact' | 'episodic'
 
 
 class Retriever:
@@ -23,13 +27,61 @@ class Retriever:
         cx = sqlite3.connect(self.db_path)
         cx.row_factory = sqlite3.Row
         return cx
-    
+
+    # ---------- helpers ----------
+
+    @staticmethod
+    def _blank(query: Optional[str]) -> bool:
+        return not query or not query.strip()
+
+    def _materialize_vectors(
+        self,
+        rows: Sequence[sqlite3.Row],
+        text_field: str = "text",
+    ) -> np.ndarray:
+        """
+        Build an [N, D] matrix of vectors using stored embeddings when present;
+        otherwise encode the provided text field.
+        """
+        vectors: List[Optional[np.ndarray]] = []
+        missing_texts: List[str] = []
+        missing_idx: List[int] = []
+
+        for i, r in enumerate(rows):
+            blob = r["embedding"] if "embedding" in r.keys() else None
+            if blob is not None:
+                # Stored as float32 bytes
+                v = np.frombuffer(blob, dtype="float32")
+                vectors.append(v)
+            else:
+                vectors.append(None)
+                # Fallback to a text field (default 'text')
+                txt = (r[text_field] or "") if text_field in r.keys() else ""
+                missing_texts.append(txt)
+                missing_idx.append(i)
+
+        if missing_texts:
+            enc = embed_texts(missing_texts)  # returns list[np.ndarray], normalized
+            for i, v in zip(missing_idx, enc):
+                vectors[i] = v
+
+        if any(v is None for v in vectors):
+            raise ValueError("Retriever._materialize_vectors: some vectors are still None")
+
+        # Ensure consistent shapes and stack
+        return np.vstack([np.asarray(v, dtype=np.float32) for v in vectors])
+
     # ---------- LESSONS (distilled, cross-run) ----------
+
     def lessons(self, query: str, k: int = 3, prefer_recent: bool = True) -> List[RetrievalResult]:
         """
         Hybrid: FTS prefilter + vector rerank over lessons (title+body).
         Optionally gives a light recency boost.
         """
+        # Avoid FTS5 MATCH '' which throws: "fts5: syntax error near "" "
+        if self._blank(query):
+            return []
+
         with self._connect() as cx:
             rows = cx.execute(
                 """
@@ -43,70 +95,60 @@ class Retriever:
                 (query,),
             ).fetchall()
 
-            # Fallback: if no lexical hits, take most recent few and let vectors do the work
+            # If no lexical hits, take most-recent candidates and let vectors do the work
             if not rows:
                 rows = cx.execute(
-                    "SELECT id, title, body, tags, embedding, created_at FROM lessons ORDER BY created_at DESC LIMIT 32"
+                    "SELECT id, title, body, tags, embedding, created_at "
+                    "FROM lessons ORDER BY created_at DESC LIMIT 32"
                 ).fetchall()
 
         if not rows:
             return []
 
-        # Use stored vectors when present; else compute on body
-        vectors: List[Optional[np.ndarray]] = []
-        texts_for_missing: List[str] = []
-        missing_idx: List[int] = []
-        for i, r in enumerate(rows):
-            blob = r["embedding"]
-            if blob is not None:
-                vectors.append(np.frombuffer(blob, dtype="float32"))
-            else:
-                vectors.append(None)
-                texts_for_missing.append(r["body"])
-                missing_idx.append(i)
-        if texts_for_missing:
-            enc = embed_texts(texts_for_missing)
-            for i, v in zip(missing_idx, enc):
-                vectors[i] = v
-        M = np.stack(vectors, axis=0)
+        # Vectorize (use stored embedding when present, else encode BODY)
+        M = self._materialize_vectors(rows, text_field="body")
 
         qv = embed_texts([query])[0]  # normalized
-        sims = M @ qv                 # cosine == dot (normalized)
+        sims = M @ qv                 # cosine == dot (normalized vectors)
 
-        # Optional light recency boost (normalize created_at over window)
+        # Optional recency boost (0..1 scaled → *0.05)
         boost = np.zeros(len(rows), dtype=np.float32)
         if prefer_recent:
             ts = np.array([float(r["created_at"] or 0.0) for r in rows], dtype=np.float32)
-            if ts.ptp() > 0:
-                rec = (ts - ts.min()) / (ts.ptp() + 1e-6)  # 0..1
-                boost = 0.05 * rec  # small nudge, not overpowering
+            if ts.size > 0 and ts.ptp() > 0:
+                rec = (ts - ts.min()) / (ts.ptp() + 1e-6)
+                boost = 0.05 * rec
 
-        scored: List[Tuple[sqlite3.Row, float]] = [(r, float(s) + float(b)) for r, s, b in zip(rows, sims, boost)]
+        scored: List[Tuple[sqlite3.Row, float]] = [
+            (r, float(s) + float(b)) for r, s, b in zip(rows, sims, boost)
+        ]
         ranked = sorted(scored, key=lambda x: x[1], reverse=True)[:k]
 
         out: List[RetrievalResult] = []
         for r, s in ranked:
             title = (r["title"] or "").strip()
-            body  = (r["body"] or "").strip()
-            text  = (title + "\n" + body) if title else body
+            body = (r["body"] or "").strip()
+            text = (title + "\n" + body) if title else body
             out.append(
                 RetrievalResult(
                     text=text,
                     source=f"lesson:{r['id']}",
-                    score=s,
+                    score=float(s),
                     kind="lesson",
                 )
             )
         return out
 
+    # ---------- RAW DOCS (manual chunks) ----------
 
-    # ---------- Raw DOCS (fallback) ----------
     def docs(self, query: str, k: int = 3) -> List[RetrievalResult]:
-        # FTS5 prefilter (lexical) + join to content table to get source/text
+        if self._blank(query):
+            return []
+
         with self._connect() as cx:
             rows = cx.execute(
                 """
-                SELECT d.id, d.text, d.source
+                SELECT d.id, d.text, d.source, d.embedding
                 FROM docs_fts f
                 JOIN docs d ON d.id = f.rowid
                 WHERE docs_fts MATCH ?
@@ -119,9 +161,9 @@ class Retriever:
         if not rows:
             return []
 
-        texts = [r["text"] for r in rows]
+        # Use stored vectors or encode text
+        M = self._materialize_vectors(rows, text_field="text")
         qv = embed_texts([query])[0]
-        M = embed_texts(texts)
         sims = M @ qv
 
         ranked = sorted(zip(rows, sims), key=lambda x: float(x[1]), reverse=True)[:k]
@@ -135,8 +177,11 @@ class Retriever:
             for (r, s) in ranked
         ]
 
-    # ---------- Rephrased (preferred) ----------
-    def _rephrased_candidates(self, query: str, limit: int = 64):
+    # ---------- REPHRASED (preferred: lessons/qa/facts) ----------
+
+    def _rephrased_candidates(self, query: str, limit: int = 64) -> List[sqlite3.Row]:
+        if self._blank(query):
+            return []
         with self._connect() as cx:
             rows = cx.execute(
                 """
@@ -151,43 +196,18 @@ class Retriever:
             ).fetchall()
         return rows
 
-    def _materialize_vectors(
-        self, rows: Sequence[sqlite3.Row]
-    ) -> np.ndarray:
-        """Return matrix [N,D] using stored embeddings when available; else encode."""
-        vectors: List[Optional[np.ndarray]] = []
-        missing_texts: List[str] = []
-        missing_idx: List[int] = []
-
-        for i, r in enumerate(rows):
-            blob = r["embedding"]
-            if blob is not None:
-                v = np.frombuffer(blob, dtype="float32")
-                vectors.append(v)
-            else:
-                vectors.append(None)
-                missing_texts.append(r["text"])
-                missing_idx.append(i)
-
-        if missing_texts:
-            enc = embed_texts(missing_texts)  # normalized
-            for i, v in zip(missing_idx, enc):
-                vectors[i] = v
-
-        # All should be filled now
-        return np.stack(vectors, axis=0)
-
     def rephrased(self, query: str, k: int = 5) -> List[RetrievalResult]:
         rows = self._rephrased_candidates(query, limit=64)
         if not rows:
             return []
 
-        qv = embed_texts([query])[0]   # normalized
-        M = self._materialize_vectors(rows)
-        sims = M @ qv                  # cosine == dot (normalized)
+        qv = embed_texts([query])[0]  # normalized
+        M = self._materialize_vectors(rows, text_field="text")
+        sims = M @ qv
 
+        # Prefer rephrased lessons > QA > facts slightly
         kind_w = {"lesson": 1.15, "qa": 1.05, "fact": 1.0}
-        scored = []
+        scored: List[Tuple[sqlite3.Row, float]] = []
         for r, s in zip(rows, sims):
             w = kind_w.get(r["kind"], 1.0)
             scored.append((r, float(s) * w))
@@ -206,15 +226,14 @@ class Retriever:
         return out
 
     def rephrased_guarded(self, query: str, k: int = 5) -> List[RetrievalResult]:
-        # Over-sample, then NLI-guard
         cand = self._rephrased_candidates(query, limit=64)
         if not cand:
             return []
 
-        # Rerank first (same as rephrased) to reduce guard calls
         qv = embed_texts([query])[0]
-        M = self._materialize_vectors(cand)
+        M = self._materialize_vectors(cand, text_field="text")
         sims = M @ qv
+
         kind_w = {"lesson": 1.15, "qa": 1.05, "fact": 1.0}
         ranked = sorted(
             [(r, float(s) * kind_w.get(r["kind"], 1.0)) for r, s in zip(cand, sims)],
@@ -225,7 +244,7 @@ class Retriever:
         kept: List[RetrievalResult] = []
         for r, s in ranked:
             sid = r["source_id"] or ""
-            ok, _score = guard_rephrased_text(self.db_path, sid, r["text"])
+            ok, _ = guard_rephrased_text(self.db_path, sid, r["text"])
             if ok:
                 kept.append(
                     RetrievalResult(
@@ -240,7 +259,8 @@ class Retriever:
 
         return kept
 
-    # ---------- Episodic (recent) ----------
+    # ---------- Episodic (recent run log) ----------
+
     def episodic_recent(self, seconds: float = 15.0, k: int = 8) -> List[RetrievalResult]:
         now = time.time()
         tmin = now - seconds
