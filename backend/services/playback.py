@@ -97,14 +97,20 @@ class PlaybackService:
         self.state.task = asyncio.create_task(self._run(csv_path))
 
     async def stop(self):
-        if self.state.running:
-            self._stop_evt.set()
-            if self.state.task:
-                try:
-                    await self.state.task
-                except asyncio.CancelledError:
-                    pass
-        self.state = RunState()  # reset
+        # idempotent stop
+        if not self.state.running:
+            self.state = RunState()
+            return
+        self._stop_evt.set()
+        if self.state.task:
+            try:
+                await self.state.task
+            except asyncio.CancelledError:
+                pass
+            except Exception:
+                # don't propagate; we'll reset state anyway
+                pass
+        self.state = RunState()
 
     def status(self) -> Dict[str, Any]:
         return {

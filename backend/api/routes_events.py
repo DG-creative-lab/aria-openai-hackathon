@@ -7,13 +7,8 @@ from sse_starlette.sse import EventSourceResponse
 
 router = APIRouter(prefix="/api/events", tags=["events"])
 
-# --- Fan-out Event Bus --------------------------------------------------------
-
+# ---------- Fan-out bus (unchanged behavior) ----------
 class EventBus:
-    """
-    Fan-out pub/sub: each subscriber gets its own queue so all
-    subscribers see every message.
-    """
     def __init__(self) -> None:
         self._subs: Set[asyncio.Queue[Dict[str, Any]]] = set()
         self._lock = asyncio.Lock()
@@ -21,14 +16,15 @@ class EventBus:
     async def publish(self, type_: str, payload: Dict[str, Any]) -> None:
         msg = {"type": type_, "payload": payload, "ts": time.time()}
         async with self._lock:
-            subs = list(self._subs)  # snapshot to avoid holding the lock while pushing
+            subs = list(self._subs)
         for q in subs:
             try:
                 q.put_nowait(msg)
             except asyncio.QueueFull:
-                # drop for this slow subscriber; keep others flowing
+                # drop for slow subscriber
                 pass
 
+    # Async generator subscription (used internally by a pump task)
     async def subscribe(self) -> AsyncGenerator[Dict[str, Any], None]:
         q: asyncio.Queue[Dict[str, Any]] = asyncio.Queue(maxsize=1024)
         async with self._lock:
@@ -41,47 +37,60 @@ class EventBus:
             async with self._lock:
                 self._subs.discard(q)
 
+
 event_bus = EventBus()
 
-# Helper for other modules:
+
 async def publish_event(type_: str, payload: Dict[str, Any]) -> None:
     await event_bus.publish(type_, payload)
 
-# --- SSE stream ---------------------------------------------------------------
 
+# ---------- SSE stream (robust) ----------
 @router.get("/stream")
 async def stream(request: Request) -> EventSourceResponse:
-    async def gen():
+    """
+    Stable SSE stream:
+      - pumps the bus into a local queue
+      - yields heartbeats when idle
+      - closes cleanly on client disconnect
+    """
+    async def event_generator():
+        # initial hello so clients know we're up
         yield {"event": "hello", "data": json.dumps({"ok": True, "ts": time.time()})}
-        heartbeat_every = 10
-        last_beat = time.time()
 
-        sub = event_bus.subscribe()
+        # pump bus -> queue; keep it isolated from the HTTP generator
+        queue: asyncio.Queue[Dict[str, Any]] = asyncio.Queue(maxsize=2048)
+
+        async def pump():
+            async for item in event_bus.subscribe():
+                with contextlib.suppress(asyncio.QueueFull):
+                    await queue.put(item)
+
+        pump_task = asyncio.create_task(pump())
+
         try:
             while True:
                 if await request.is_disconnected():
                     break
-
-                now = time.time()
-                if now - last_beat >= heartbeat_every:
-                    yield {"event": "heartbeat", "data": json.dumps({"ts": now})}
-                    last_beat = now
-
                 try:
-                    item = await asyncio.wait_for(sub.__anext__(), timeout=1.0)
+                    item = await asyncio.wait_for(queue.get(), timeout=10.0)
                     yield {"event": item["type"], "data": json.dumps(item["payload"])}
                 except asyncio.TimeoutError:
-                    continue
+                    # no events: send heartbeat to keep proxies happy
+                    yield {"event": "heartbeat", "data": json.dumps({"ts": time.time()})}
         finally:
-            # best-effort unsubscribe/close of the async generator
+            pump_task.cancel()
             with contextlib.suppress(Exception):
-                aclose = getattr(sub, "aclose", None)
-                if aclose:
-                    await aclose()
+                await pump_task
 
-    return EventSourceResponse(gen(), media_type="text/event-stream")
-
+    return EventSourceResponse(event_generator(), media_type="text/event-stream")
 
 @router.get("/health")
 async def health() -> Response:
     return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+# Optional: tiny debug emitter so you can poke the stream without playback
+@router.post("/test-ping")
+async def test_ping():
+    await publish_event("tick", {"telem": {"altitude_agl_m": 12.3, "vertical_speed_mps": -1.1}})
+    return {"ok": True}

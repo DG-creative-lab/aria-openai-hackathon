@@ -59,8 +59,11 @@ async def start(scenario: str = Query(..., description="scenario key, e.g., norm
 
 @router.post("/stop", response_model=OkOut)
 async def stop() -> OkOut:
-    await playback.stop()
-    return OkOut(ok=True)
+    try:
+        await playback.stop()
+        return OkOut(ok=True)
+    except Exception as e:
+        raise HTTPException(status_code=409, detail=f"stop_failed: {e}")
 
 @router.get("/status", response_model=StatusOut)
 def status() -> StatusOut:
