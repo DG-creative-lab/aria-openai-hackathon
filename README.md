@@ -1,5 +1,7 @@
 # ARIA Mission Control — GPT-OSS Edition 🛩️
 
+[Project Paper Lik](docs/aria-context-and-memory.md)
+
 A real-time mission UI that plans, reasons, and chats using open-weights LLMs.
 
 ---
@@ -81,8 +83,9 @@ cp frontend/.env.local.example frontend/.env.local
 cd frontend && pnpm i && cd ..
 
 # (first time) python deps
+cd backend
 # we used uv/uvicorn in scripts, but pip works too
-pip install -r docs/requirements.txt  # or: uv pip install -r ...
+pip install -r requirements.txt  # or: uv pip install -r ...
 ```
 
 ### 3) Run both (monorepo helper)
