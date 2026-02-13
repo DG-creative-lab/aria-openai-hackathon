@@ -8,7 +8,7 @@ type Plan = {
   phase: string;
   action: string;
   parameters?: Record<string, number>;
-  checks?: string[];
+  checks?: Array<string | { name?: string; ok?: boolean; detail?: string; details?: string }>;
   risk: "low" | "medium" | "high" | string;
   confidence: number;
   references?: string[];
@@ -27,28 +27,22 @@ export default function PlanPanel({
 
   React.useEffect(() => {
     if (plan) return;
-    const off = connectSSE({ plan_proposed: (p) => setLivePlan(p) });
+    const off = connectSSE({ plan_proposed: (p) => setLivePlan(p) }, { base: backendBase });
     return off;
-  }, [plan]);
+  }, [plan, backendBase]);
 
   const effectivePlan: Plan | null =
     plan ?? (livePlan as unknown as Plan | null) ?? null;
 
   // --- Ablations ---
   const [useDocs, setUseDocs] = React.useState(() =>
-    typeof window !== "undefined"
-      ? localStorage.getItem("aria.useDocs") === "1"
-      : true
+    readStoredToggle("aria.useDocs", true)
   );
   const [useLessons, setUseLessons] = React.useState(() =>
-    typeof window !== "undefined"
-      ? localStorage.getItem("aria.useLessons") === "1"
-      : true
+    readStoredToggle("aria.useLessons", true)
   );
   const [useGate, setUseGate] = React.useState(() =>
-    typeof window !== "undefined"
-      ? localStorage.getItem("aria.useGate") === "1"
-      : true
+    readStoredToggle("aria.useGate", true)
   );
 
   React.useEffect(() => {
@@ -179,7 +173,7 @@ export default function PlanPanel({
                 </div>
                 <ul className="list-disc pl-5 text-sm">
                   {effectivePlan.checks.map((c, i) => (
-                    <li key={i}>{c}</li>
+                    <li key={i}>{formatCheck(c)}</li>
                   ))}
                 </ul>
               </div>
@@ -264,6 +258,21 @@ function Toggle({
   );
 }
 
+function readStoredToggle(key: string, fallback: boolean): boolean {
+  if (typeof window === "undefined") return fallback;
+  const raw = localStorage.getItem(key);
+  if (raw === null) return fallback;
+  return raw === "1";
+}
+
+function formatCheck(
+  check: string | { name?: string; ok?: boolean; detail?: string; details?: string }
+): string {
+  if (typeof check === "string") return check;
+  const status = check.ok ? "OK" : "WARN";
+  const detail = check.detail ?? check.details;
+  return detail ? `${status}: ${check.name ?? "check"} (${detail})` : `${status}: ${check.name ?? "check"}`;
+}
 
 
 

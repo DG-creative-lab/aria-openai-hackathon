@@ -21,12 +21,13 @@ Everything is open and swappable; the only paid thing is your LLM key.
 
 ## 🧠 Why GPT-OSS
 
-- **Open weights & portability** – run on Groq (for low latency), an OpenRouter provider, or your own vLLM/llama.cpp server.
+- **Open weights & portability** – run on OpenRouter (default), or your own vLLM/llama.cpp server.
 - **Cost control** – small JSON plans + retrieval keep token usage tiny.
 - **Auditable plans** – models output a strict JSON plan that we validate; working memory is logged.
 
-**Default model (demo):** gpt-oss-20b (via Groq).
-You can substitute llama-3.1-8b-instant, llama-3.1-70b, or any OSS model exposed through an OpenAI-style endpoint.
+**Default model (demo):** `openrouter/aurora-alpha` (experimental, via OpenRouter).  
+**Automatic fallback model:** `openai/gpt-oss-120b`.
+You can substitute any OSS model exposed through an OpenAI-compatible endpoint.
 
 ---
 
@@ -67,13 +68,15 @@ Copy env templates and fill your OSS LLM key:
 ```bash
 # Backend
 cp .env.example .env
-# set GROQ_API_KEY=... (or OPENAI_API_KEY / OPENROUTER_API_KEY)
-# set MODEL_NAME=gpt-oss-20b   # or llama-3.1-8b-instant, etc.
+# set LLM_PROVIDER=openrouter
+# set OPENROUTER_API_KEY=...
+# set MODEL_NAME=openrouter/aurora-alpha
+# optional fallback: FALLBACK_MODEL_NAME=openai/gpt-oss-120b
 
 # Frontend
 cp frontend/.env.local.example frontend/.env.local
 # set NEXT_PUBLIC_API_BASE=http://localhost:8000
-# optional: NEXT_PUBLIC_LLM_MODEL_LABEL="GPT-oss-20B"
+# optional: NEXT_PUBLIC_MODEL_NAME="OpenRouter Aurora Alpha"
 ```
 
 ### 2) Install
@@ -134,13 +137,17 @@ curl -X POST http://localhost:8000/api/events/test-ping
 
 ### Swap models easily
 
-- **Groq (recommended for demo)**
-  - Set `GROQ_API_KEY` and `MODEL_NAME=gpt-oss-20b` 
-- **OpenRouter / vLLM / local llama.cpp**
-  - Set `OPENAI_API_KEY` + `OPENAI_BASE_URL` to your provider/server.
-  - Keep the same `MODEL_NAME` your server exports.
+- **OpenRouter (recommended for demo)**
+  - Set `LLM_PROVIDER=openrouter`
+  - Set `OPENROUTER_API_KEY`
+  - Set `MODEL_NAME=openrouter/aurora-alpha`
+  - Optional fallback: `FALLBACK_MODEL_NAME=openai/gpt-oss-120b`
+- **Other OpenAI-compatible endpoints (vLLM / local llama.cpp / hosted APIs)**
+  - Set `LLM_PROVIDER=openai`
+  - Set `OPENAI_API_KEY` + `OPENAI_BASE_URL`
+  - Set `MODEL_NAME` to a model your endpoint exposes.
 
-All calls go through a single `aria/agent.py::call_model`, so you can redirect endpoints in one place.
+All calls route through the centralized LLM client (`backend/llm/client.py`), with `aria/agent.py` as a compatibility facade.
 
 ---
 
@@ -190,10 +197,15 @@ Next.js (App Router), Tailwind v3, dark theme.
 ## ⚙️ Key env knobs (backend)
 
 ```bash
-# LLM wiring
-GROQ_API_KEY=...
-MODEL_NAME=gpt-oss-20b        # or llama-3.1-8b-instant, etc.
-# Or use OPENAI_API_KEY + OPENAI_BASE_URL
+# LLM wiring (default OpenRouter)
+LLM_PROVIDER=openrouter
+OPENROUTER_API_KEY=...
+OPENAI_BASE_URL=https://openrouter.ai/api/v1
+MODEL_NAME=openrouter/aurora-alpha
+FALLBACK_MODEL_NAME=openai/gpt-oss-120b
+# Optional OpenRouter attribution headers:
+# OPENROUTER_APP_NAME=ARIA Mission Control
+# OPENROUTER_APP_URL=https://your-app.example
 
 # Planner
 PLAN_TOKEN_BUDGET=900
@@ -269,14 +281,14 @@ NEXT_PUBLIC_LLM_MODEL_LABEL="GPT-oss-20B"
   ```
 
 - **Model "Submitting…" but no answer**
-  - Verify your key + model name; try `MODEL_NAME=llama-3.1-8b-instant`.
-  - If using a custom server, set `OPENAI_BASE_URL` to your endpoint.
+  - Verify `OPENROUTER_API_KEY`, `MODEL_NAME`, and `FALLBACK_MODEL_NAME`.
+  - If using a custom endpoint, set `LLM_PROVIDER=openai` and `OPENAI_BASE_URL`.
 
 ---
 
 ## 🛠️ Extending
 
-- Swap models in one place (`aria/agent.py::call_model`) or just change env.
+- Swap models in one place (`backend/llm/config.py` + env) or just change env.
 - Drop in your own docs (markdown/PDF→txt) and (re)distill to `docs_rephrased`.
 - Add critics or a brand policy pass beside `safety_gate`.
 
@@ -290,5 +302,5 @@ MIT for this demo code & prompts. Documents under `data/docs` retain their origi
 ## TL;DR
 
 - **One command:** `pnpm dev`
-- **One key:** your GPT-OSS key (Groq or any OpenAI-compatible host)
+- **One key:** your OpenRouter key (or any OpenAI-compatible host key)
 - **One UI:** Realtime gauges, JSON plans, and a mission chat — all powered by open models.

@@ -1,16 +1,20 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
-import { useChat } from "@ai-sdk/react";
-import { DefaultChatTransport, UIMessage } from "ai";
+import { useEffect, useRef, useState } from "react";
+
+// --- local message shape (compatible with your Bubble)
+type Role = "system" | "user" | "assistant";
+type Part = { type: "text"; text: string };
+type UiMsg = { id: string; role: Role; parts: Part[] };
 
 export default function ChatPanel() {
-  const { messages, sendMessage, status, stop, error, setMessages } = useChat({
-    transport: new DefaultChatTransport({ api: "/api/chat" }),
-  });
-
+  const [messages, setMessages] = useState<UiMsg[]>([]);
   const [input, setInput] = useState("");
+  const [status, setStatus] =
+    useState<"ready" | "submitted" | "streaming" | "stopped">("ready");
+  const [error, setError] = useState<string | null>(null);
   const listRef = useRef<HTMLDivElement>(null);
+  const abortRef = useRef<AbortController | null>(null);
 
   // auto-scroll on new messages
   useEffect(() => {
@@ -18,14 +22,81 @@ export default function ChatPanel() {
     if (el) el.scrollTo({ top: el.scrollHeight, behavior: "smooth" });
   }, [messages.length]);
 
+  function flattenParts(parts: Part[]) {
+    return parts.map((p) => p.text).join("");
+  }
+
+  function toBackendPayload(msgs: UiMsg[]) {
+    return {
+      messages: msgs.map((m) => ({
+        role: m.role,
+        content: flattenParts(m.parts),
+      })),
+    };
+  }
+
+  async function callBackend(payload: any, signal?: AbortSignal) {
+    const r = await fetch("/api/chat", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+      signal,
+    });
+    if (!r.ok) {
+      const t = await r.text();
+      throw new Error(t || `HTTP ${r.status}`);
+    }
+    return (await r.json()) as { reply: string };
+  }
+
+  async function send(text: string) {
+    setError(null);
+    const userMsg: UiMsg = {
+      id: crypto.randomUUID(),
+      role: "user",
+      parts: [{ type: "text", text }],
+    };
+    const next = [...messages, userMsg];
+    setMessages(next);
+    setInput("");
+    setStatus("submitted");
+
+    // enable Stop
+    abortRef.current?.abort();
+    const ac = new AbortController();
+    abortRef.current = ac;
+
+    try {
+      const data = await callBackend(toBackendPayload(next), ac.signal);
+      const assistantMsg: UiMsg = {
+        id: crypto.randomUUID(),
+        role: "assistant",
+        parts: [{ type: "text", text: data.reply || "(no reply)" }],
+      };
+      setMessages((prev) => [...prev, assistantMsg]);
+      setStatus("ready");
+    } catch (e: any) {
+      if (e?.name === "AbortError") {
+        setStatus("stopped");
+        return;
+      }
+      setError(e?.message || "Request failed");
+      setStatus("ready");
+    }
+  }
+
   // manual retry of last user message
   const retryLast = () => {
     const lastUser = [...messages].reverse().find((m) => m.role === "user");
     if (!lastUser) return;
     const idx = messages.findIndex((m) => m.id === lastUser.id);
-    setMessages(messages.slice(0, idx + 1) as UIMessage[]);
-    const text = lastUser.parts.map((p) => (p.type === "text" ? p.text : "")).join("");
-    if (text) sendMessage({ text });
+    setMessages(messages.slice(0, idx + 1));
+    const text = flattenParts(lastUser.parts);
+    if (text) void send(text);
+  };
+
+  const stop = () => {
+    abortRef.current?.abort();
   };
 
   return (
@@ -47,7 +118,11 @@ export default function ChatPanel() {
 
         {status !== "ready" && (
           <div className="mt-2 text-xs text-muted-foreground">
-            {status === "streaming" ? "Streaming…" : "Submitting…"}
+            {status === "submitted"
+              ? "Submitting…"
+              : status === "streaming"
+              ? "Streaming…" // not used now, but kept for consistency
+              : "Stopped"}
           </div>
         )}
 
@@ -65,9 +140,8 @@ export default function ChatPanel() {
       <form
         onSubmit={(e) => {
           e.preventDefault();
-          if (!input.trim()) return;
-          sendMessage({ text: input });
-          setInput("");
+          const text = input.trim();
+          if (text) void send(text);
         }}
         className="mt-3 flex gap-2"
       >
@@ -79,10 +153,10 @@ export default function ChatPanel() {
           className="flex-1 rounded-xl border border-input bg-background px-3 py-2 text-sm
                      focus:outline-none focus:ring-2 focus:ring-primary/60"
         />
-        {status === "streaming" || status === "submitted" ? (
+        {status === "submitted" ? (
           <button
             type="button"
-            onClick={() => stop()}
+            onClick={stop}
             className="rounded-xl border border-amber-300 bg-amber-50 px-4 text-sm font-medium text-amber-900
                        hover:bg-amber-100 dark:border-amber-400/40 dark:bg-amber-400/10 dark:text-amber-200"
           >
@@ -106,22 +180,16 @@ function Bubble({
   role,
   parts,
 }: {
-  role: string;
+  role: Role;
   parts: { type: string; text?: string }[];
 }) {
-  const isUser = role === "user";
   const base = "max-w-[85%] break-words rounded-2xl px-3 py-2 border text-sm";
   const user = "ml-auto bg-primary/15 border-primary/20 text-foreground";
   const bot = "mr-auto bg-card border-border text-foreground";
   const system = "mx-auto bg-secondary/40 border-border text-muted-foreground";
-
   return (
-    <div className={isUser ? "text-right" : ""}>
-      <div
-        className={`${base} ${
-          role === "user" ? user : role === "assistant" ? bot : system
-        }`}
-      >
+    <div className={role === "user" ? "text-right" : ""}>
+      <div className={`${base} ${role === "user" ? user : role === "assistant" ? bot : system}`}>
         {parts.map((p, i) => (p.type === "text" ? <span key={i}>{p.text}</span> : null))}
       </div>
     </div>

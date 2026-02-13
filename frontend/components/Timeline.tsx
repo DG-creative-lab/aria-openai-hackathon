@@ -15,35 +15,38 @@ type Props = { backendBase?: string };
 // Keep the list bounded for perf & UX
 const MAX_ROWS = 200;
 
-export default function Timeline(_props: Props) {
+export default function Timeline({ backendBase = process.env.NEXT_PUBLIC_API_BASE || "" }: Props) {
   const [rows, setRows] = React.useState<Row[]>([]);
   const scrollRef = React.useRef<HTMLDivElement | null>(null);
 
   React.useEffect(() => {
-    const stop = connectSSE({
-      run_started: (d) => push({ kind: "run", text: `Run started (${d.scenario})`, at: Date.now() }),
-      run_finished: (d) => push({ kind: "run", text: `Run finished (${d.scenario})`, at: Date.now() }),
-      plan_proposed: (p) => {
-        const pe = p as PlanEvent;
-        const label = pe.action || "(no action)";
-        push({ kind: "plan", text: label, conf: pe.confidence, at: Date.now() });
+    const stop = connectSSE(
+      {
+        run_started: (d) => push({ kind: "run", text: `Run started (${d.scenario})`, at: Date.now() }),
+        run_finished: (d) => push({ kind: "run", text: `Run finished (${d.scenario})`, at: Date.now() }),
+        plan_proposed: (p) => {
+          const pe = p as PlanEvent;
+          const label = pe.action || "(no action)";
+          push({ kind: "plan", text: label, conf: pe.confidence, at: Date.now() });
+        },
+        anomaly: (a) => {
+          const an = a as AnomalyEvent;
+          const desc =
+            an.kind === "crosswind_high"
+              ? `Anomaly: Crosswind high (${String(an["wind_y"] ?? "")} m/s)`
+              : an.kind === "descent_rate_high_near_ground"
+              ? `Anomaly: High sink near ground (${String(an["vz"] ?? "")} m/s)`
+              : `Anomaly: ${an.kind}`;
+          push({ kind: "anomaly", text: desc, at: Date.now() });
+        },
+        distilled_lesson: (x) =>
+          push({ kind: "distill", text: `Lesson distilled (#${x.lesson_id})`, at: Date.now() }),
       },
-      anomaly: (a) => {
-        const an = a as AnomalyEvent;
-        const desc =
-          an.kind === "crosswind_high"
-            ? `Anomaly: Crosswind high (${String(an["wind_y"] ?? "")} m/s)`
-            : an.kind === "descent_rate_high_near_ground"
-            ? `Anomaly: High sink near ground (${String(an["vz"] ?? "")} m/s)`
-            : `Anomaly: ${an.kind}`;
-        push({ kind: "anomaly", text: desc, at: Date.now() });
-      },
-      distilled_lesson: (x) =>
-        push({ kind: "distill", text: `Lesson distilled (#${x.lesson_id})`, at: Date.now() }),
-    });
+      { base: backendBase }
+    );
     return () => stop();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [backendBase]);
 
   function push(r: Row) {
     setRows((prev) => {

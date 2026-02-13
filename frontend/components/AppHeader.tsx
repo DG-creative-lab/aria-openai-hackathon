@@ -4,7 +4,7 @@ import { useTheme } from "next-themes";
 import { Sun, Moon } from "lucide-react";
 
 export default function AppHeader({
-  model = process.env.NEXT_PUBLIC_MODEL_NAME || "GPT-oss-20B",
+  model = process.env.NEXT_PUBLIC_MODEL_NAME || "OpenRouter Aurora Alpha",
 }: { model?: string }) {
   const { theme, setTheme } = useTheme();
   const next = theme === "dark" ? "light" : "dark";

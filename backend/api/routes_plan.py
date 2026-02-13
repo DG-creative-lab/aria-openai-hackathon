@@ -9,6 +9,8 @@ from pydantic import BaseModel, Field
 from .routes_events import publish_event
 from ..services.playback import playback as playback_service  # to update MetricsTracker
 from ..aria.memory.store import episodic_append               # episodic_log write
+from ..services import planner as planner_service
+from .routes_admin import ABLATION_FLAGS
 
 router = APIRouter(prefix="/api/plan", tags=["plan"])
 
@@ -32,6 +34,37 @@ class DecisionIn(BaseModel):
     human_action: HumanAction
     modification: Optional[PlanPatch] = None
     note: Optional[str] = None
+
+class PlanNowIn(BaseModel):
+    state: Dict[str, Any]
+    query: Optional[str] = None
+    use_docs: Optional[bool] = None
+    use_lessons: Optional[bool] = None
+    use_gate: Optional[bool] = None
+
+
+@router.post("/now")
+async def plan_now(body: PlanNowIn):
+    state = body.state or {}
+    default_query = "safe immediate landing guidance"
+    query = body.query or (
+        "crosswind flare procedure"
+        if str(state.get("phase", "")).lower() in ("final_approach", "flare")
+        else default_query
+    )
+    ablations = {
+        "use_docs": ABLATION_FLAGS.get("use_docs", True) if body.use_docs is None else bool(body.use_docs),
+        "use_lessons": ABLATION_FLAGS.get("use_lessons", True) if body.use_lessons is None else bool(body.use_lessons),
+        "use_gate": ABLATION_FLAGS.get("use_gate", True) if body.use_gate is None else bool(body.use_gate),
+    }
+    plan = await planner_service.tick(
+        db_path="data/aria.sqlite",
+        state_summary=state,
+        query=query,
+        ablations=ablations,
+    )
+    await publish_event("plan_proposed", plan)
+    return plan
 
 # ---- unified endpoint ----
 @router.post("/decision")

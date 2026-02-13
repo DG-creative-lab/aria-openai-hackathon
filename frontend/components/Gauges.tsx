@@ -33,15 +33,16 @@ function computeDomain(values: number[], pad = 2, hard?: [number, number]) {
   return [min - pad, max + pad] as const;
 }
 
-export default function Gauges(_props: Props) {
+export default function Gauges({ backendBase = process.env.NEXT_PUBLIC_API_BASE || "" }: Props) {
   const [latest, setLatest] = React.useState<TickEvent["telem"] | null>(null);
   const [series, setSeries] = React.useState<Point[]>([]);
   const startedAtRef = React.useRef<number>(performance.now());
   const setTelem = useTelemStore((s) => s.setTelem);
 
   React.useEffect(() => {
-    const stop = connectSSE({
-      tick: ({ telem }) => {
+    const stop = connectSSE(
+      {
+        tick: ({ telem }) => {
         const tsec = (performance.now() - startedAtRef.current) / 1000;
 
         setLatest(telem);
@@ -67,10 +68,12 @@ export default function Gauges(_props: Props) {
           wind_y_mps: telem.wind_y_mps ?? 0,
           phase: telem.phase ?? "",
         });
+        },
       },
-    });
+      { base: backendBase }
+    );
     return () => stop();
-  }, [setTelem]);
+  }, [setTelem, backendBase]);
 
   // Only render the window we keep
   const data = series;

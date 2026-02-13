@@ -146,17 +146,34 @@ class Retriever:
             return []
 
         with self._connect() as cx:
-            rows = cx.execute(
-                """
-                SELECT d.id, d.text, d.source, d.embedding
-                FROM docs_fts f
-                JOIN docs d ON d.id = f.rowid
-                WHERE docs_fts MATCH ?
-                ORDER BY bm25(docs_fts)
-                LIMIT 50
-                """,
-                (query,),
-            ).fetchall()
+            # Backward-compatible query:
+            # some shipped DBs have docs.embedding, older ones do not.
+            try:
+                rows = cx.execute(
+                    """
+                    SELECT d.id, d.text, d.source, d.embedding
+                    FROM docs_fts f
+                    JOIN docs d ON d.id = f.rowid
+                    WHERE docs_fts MATCH ?
+                    ORDER BY bm25(docs_fts)
+                    LIMIT 50
+                    """,
+                    (query,),
+                ).fetchall()
+            except sqlite3.OperationalError as e:
+                if "no such column: d.embedding" not in str(e):
+                    raise
+                rows = cx.execute(
+                    """
+                    SELECT d.id, d.text, d.source, NULL AS embedding
+                    FROM docs_fts f
+                    JOIN docs d ON d.id = f.rowid
+                    WHERE docs_fts MATCH ?
+                    ORDER BY bm25(docs_fts)
+                    LIMIT 50
+                    """,
+                    (query,),
+                ).fetchall()
 
         if not rows:
             return []

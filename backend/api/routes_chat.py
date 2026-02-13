@@ -83,4 +83,7 @@ def chat(body: ChatIn) -> ChatOut:
         ]
         raw = call_model(messages=follow, response_format=None, max_tokens=500)
 
-    return ChatOut(reply=raw, used_tool=used_tool, observation=observation)
+    reply = (raw or "").strip()
+    if not reply:
+        reply = "I couldn't generate a text reply from the model. Please try again or switch model settings."
+    return ChatOut(reply=reply, used_tool=used_tool, observation=observation)
