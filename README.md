@@ -25,8 +25,8 @@ Everything is open and swappable; the only paid thing is your LLM key.
 - **Cost control** – small JSON plans + retrieval keep token usage tiny.
 - **Auditable plans** – models output a strict JSON plan that we validate; working memory is logged.
 
-**Default model (demo):** `openrouter/aurora-alpha` (experimental, via OpenRouter).  
-**Automatic fallback model:** `openai/gpt-oss-120b`.
+**Default model (demo):** `openai/gpt-oss-120b`.
+**Automatic fallback model:** `openrouter/aurora-alpha` (experimental, via OpenRouter).  
 You can substitute any OSS model exposed through an OpenAI-compatible endpoint.
 
 ---
@@ -70,13 +70,13 @@ Copy env templates and fill your OSS LLM key:
 cp .env.example .env
 # set LLM_PROVIDER=openrouter
 # set OPENROUTER_API_KEY=...
-# set MODEL_NAME=openrouter/aurora-alpha
-# optional fallback: FALLBACK_MODEL_NAME=openai/gpt-oss-120b
+# set MODEL_NAME=openai/gpt-oss-120b
+# optional fallback: FALLBACK_MODEL_NAME=openrouter/aurora-alpha
 
 # Frontend
 cp frontend/.env.local.example frontend/.env.local
 # set NEXT_PUBLIC_API_BASE=http://localhost:8000
-# optional: NEXT_PUBLIC_MODEL_NAME="OpenRouter Aurora Alpha"
+# optional: NEXT_PUBLIC_MODEL_NAME="GPT-OSS 120B"
 ```
 
 ### 2) Install
@@ -140,8 +140,8 @@ curl -X POST http://localhost:8000/api/events/test-ping
 - **OpenRouter (recommended for demo)**
   - Set `LLM_PROVIDER=openrouter`
   - Set `OPENROUTER_API_KEY`
-  - Set `MODEL_NAME=openrouter/aurora-alpha`
-  - Optional fallback: `FALLBACK_MODEL_NAME=openai/gpt-oss-120b`
+  - Set `MODEL_NAME=openai/gpt-oss-120b`
+  - Optional fallback: `FALLBACK_MODEL_NAME=openrouter/aurora-alpha`
 - **Other OpenAI-compatible endpoints (vLLM / local llama.cpp / hosted APIs)**
   - Set `LLM_PROVIDER=openai`
   - Set `OPENAI_API_KEY` + `OPENAI_BASE_URL`
@@ -201,8 +201,8 @@ Next.js (App Router), Tailwind v3, dark theme.
 LLM_PROVIDER=openrouter
 OPENROUTER_API_KEY=...
 OPENAI_BASE_URL=https://openrouter.ai/api/v1
-MODEL_NAME=openrouter/aurora-alpha
-FALLBACK_MODEL_NAME=openai/gpt-oss-120b
+MODEL_NAME=openai/gpt-oss-120b
+FALLBACK_MODEL_NAME=openrouter/aurora-alpha
 # Optional OpenRouter attribution headers:
 # OPENROUTER_APP_NAME=ARIA Mission Control
 # OPENROUTER_APP_URL=https://your-app.example

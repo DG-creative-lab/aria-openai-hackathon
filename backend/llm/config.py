@@ -29,8 +29,8 @@ class LLMConfig:
     @staticmethod
     def from_env() -> "LLMConfig":
         provider = os.getenv("LLM_PROVIDER", "openrouter").strip().lower()
-        model_name = os.getenv("MODEL_NAME", "openrouter/aurora-alpha")
-        fallback_model_name = os.getenv("FALLBACK_MODEL_NAME", "openai/gpt-oss-120b")
+        model_name = os.getenv("MODEL_NAME","openai/gpt-oss-120b" )
+        fallback_model_name = os.getenv("FALLBACK_MODEL_NAME", "openrouter/aurora-alpha")
         base_url = os.getenv(
             "OPENAI_BASE_URL",
             "https://openrouter.ai/api/v1" if provider == "openrouter" else "https://api.openai.com/v1",
