@@ -4,7 +4,7 @@
 import React from "react";
 import { connectSSE, TickEvent } from "../lib/events";
 import {
-  LineChart, Line, XAxis, YAxis, ResponsiveContainer, Tooltip, CartesianGrid, Legend,
+  LineChart, Line, XAxis, YAxis, ResponsiveContainer, Tooltip, CartesianGrid,
 } from "recharts";
 import { useTelemStore } from "../lib/telemetryStore";
 
@@ -98,9 +98,9 @@ export default function Gauges({ backendBase = process.env.NEXT_PUBLIC_API_BASE 
                        : "text-green-800 bg-green-50 border-green-200";
 
   return (
-    <div className="flex h-full min-h-0 flex-col space-y-3">
+    <div className="flex h-full min-h-0 flex-col space-y-3 overflow-hidden">
       {/* Stats */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+      <div className="grid grid-cols-2 xl:grid-cols-4 gap-2 md:gap-3 shrink-0">
         <Stat label="Altitude (AGL)" value={`${alt.toFixed(1)} m`} />
         <Stat label="VSpeed"        value={`${vz.toFixed(2)} m/s`} />
         <Stat label="Ground Speed"  value={`${gs.toFixed(1)} m/s`} />
@@ -112,7 +112,7 @@ export default function Gauges({ backendBase = process.env.NEXT_PUBLIC_API_BASE 
       </div>
 
       {/* Chart fills remaining panel height; internal overflow prevented */}
-      <div className="flex-1 min-h-[220px] overflow-hidden">
+      <div className="flex-1 min-h-[160px] overflow-hidden">
         <ResponsiveContainer width="100%" height="100%">
           <LineChart data={data} margin={{ top: 5, right: 10, left: 6, bottom: 5 }}>
             <CartesianGrid strokeDasharray="3 3" />
@@ -144,7 +144,6 @@ export default function Gauges({ backendBase = process.env.NEXT_PUBLIC_API_BASE 
                 name === "alt" ? [`${val.toFixed(1)} m`, "Altitude"] : [`${val.toFixed(2)} m/s`, "VSpeed"]}
               labelFormatter={(l) => `${Math.floor(Number(l))} s`}
             />
-            <Legend />
             <Line
               yAxisId="alt"
               type="monotone"
@@ -174,7 +173,7 @@ function Stat({ label, value }: { label: string; value: string }) {
   return (
     <div className="rounded-xl border px-3 py-2 bg-white dark:bg-slate-900/40">
       <div className="text-xs uppercase text-gray-600 dark:text-gray-400">{label}</div>
-      <div className="text-lg font-semibold">{value}</div>
+      <div className="text-base md:text-lg font-semibold leading-tight">{value}</div>
     </div>
   );
 }

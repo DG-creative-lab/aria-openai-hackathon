@@ -5,6 +5,9 @@ Real-time mission-control simulation with safety-gated LLM planning, retrieval-a
 [Architecture paper](docs/aria-context-and-memory.md)  
 [Portfolio case study](docs/portfolio-case-study.md)
 
+![ARIA Mission Control UI](docs/assets/aria-ui.png)
+*Live telemetry, safety-gated planning, operator controls, and mission chat.*
+
 ## Portfolio Snapshot
 
 ARIA is a full-stack AI system, not just a chat demo:
@@ -146,4 +149,3 @@ Services:
 
 MIT for code in this repository.  
 Files under `data/docs` retain their original licenses/sources.
-

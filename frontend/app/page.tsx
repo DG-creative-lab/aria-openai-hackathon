@@ -11,7 +11,7 @@ export default function Page() {
   return (
     <div className="h-full min-h-0 mx-auto max-w-7xl p-4 flex flex-col">
       {/* header row of the page (doesn't grow) */}
-      <div className="mb-3 flex items-center justify-between shrink-0">
+      <div className="mb-3 flex flex-col sm:flex-row sm:items-center justify-between gap-2 shrink-0 min-w-0">
         <div className="text-sm text-muted-foreground">ARIA Mission Control</div>
         <ScenarioControls />
       </div>
@@ -29,9 +29,9 @@ export default function Page() {
         </aside>
 
         {/* RIGHT */}
-        <section className="lg:col-span-8 grid min-h-0 grid-rows-[minmax(320px,0.55fr),1fr] gap-4">
-          <div className="grid min-h-0 grid-cols-1 gap-4 xl:grid-cols-3">
-            <div className="xl:col-span-2 min-h-0">
+        <section className="lg:col-span-8 grid min-h-0 overflow-hidden grid-rows-[minmax(360px,3fr),minmax(240px,2fr)] gap-4">
+          <div className="grid min-h-0 overflow-hidden grid-cols-1 gap-4 xl:grid-cols-[minmax(0,2fr)_minmax(300px,1fr)]">
+            <div className="min-h-0">
               <div className="panel h-full flex flex-col">
                 <div className="panel-header shrink-0">Flight Gauges</div>
                 <div className="panel-body flex-1 min-h-0 overflow-hidden">
@@ -39,7 +39,7 @@ export default function Page() {
                 </div>
               </div>
             </div>
-            <div className="xl:col-span-1 min-h-0">
+            <div className="min-h-0">
               <div className="panel h-full flex flex-col">
                 <div className="panel-header shrink-0">ARIA Plan</div>
                 <div className="panel-body flex-1 min-h-0 overflow-hidden">
@@ -51,7 +51,7 @@ export default function Page() {
 
           <div className="panel h-full flex flex-col">
             <div className="panel-header shrink-0">Timeline</div>
-            <div className="panel-body flex-1 min-h-0 overflow-hidden">
+            <div className="panel-body flex-1 min-h-0 overflow-hidden p-0">
               <Timeline backendBase={base} />
             </div>
           </div>

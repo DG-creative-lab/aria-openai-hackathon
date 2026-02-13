@@ -114,16 +114,16 @@ export default function PlanPanel({
   };
 
   return (
-    <div className="flex h-full w-full flex-col">
+    <div className="flex h-full w-full min-h-0 flex-col overflow-hidden">
       {/* toggle row only */}
-      <div className="flex items-center justify-end gap-3 border-b px-4 py-2">
+      <div className="flex flex-wrap items-center justify-end gap-3 border-b px-4 py-2 shrink-0">
         <Toggle label="Docs" checked={useDocs} onChange={setUseDocs} />
         <Toggle label="Lessons" checked={useLessons} onChange={setUseLessons} />
         <Toggle label="Gate" checked={useGate} onChange={setUseGate} />
       </div>
 
       {/* content */}
-      <div className="flex-1 overflow-y-auto p-4">
+      <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain custom-scroll p-4">
         {!effectivePlan ? (
           <div className="text-sm text-muted-foreground">
             No plan yet. Waiting for next tick…
@@ -211,22 +211,22 @@ export default function PlanPanel({
 
       {/* footer */}
       {effectivePlan && (
-        <div className="flex gap-2 border-t px-4 py-3">
+        <div className="flex flex-wrap gap-2 border-t px-4 py-3 shrink-0">
           <button
             onClick={approve}
-            className="rounded-xl border border-green-300 bg-green-50 px-3 py-1.5 text-sm font-medium text-green-800 hover:bg-green-100 dark:border-green-700 dark:bg-green-950/30 dark:text-green-300"
+            className="flex-1 min-w-[90px] rounded-xl border border-green-300 bg-green-50 px-3 py-1.5 text-sm font-medium text-green-800 hover:bg-green-100 dark:border-green-700 dark:bg-green-950/30 dark:text-green-300"
           >
             Approve
           </button>
           <button
             onClick={modify}
-            className="rounded-xl border border-amber-300 bg-amber-50 px-3 py-1.5 text-sm font-medium text-amber-800 hover:bg-amber-100 dark:border-amber-700 dark:bg-amber-950/30 dark:text-amber-300"
+            className="flex-1 min-w-[90px] rounded-xl border border-amber-300 bg-amber-50 px-3 py-1.5 text-sm font-medium text-amber-800 hover:bg-amber-100 dark:border-amber-700 dark:bg-amber-950/30 dark:text-amber-300"
           >
             Modify
           </button>
           <button
             onClick={reject}
-            className="rounded-xl border border-red-300 bg-red-50 px-3 py-1.5 text-sm font-medium text-red-800 hover:bg-red-100 dark:border-red-700 dark:bg-red-950/30 dark:text-red-300"
+            className="flex-1 min-w-[90px] rounded-xl border border-red-300 bg-red-50 px-3 py-1.5 text-sm font-medium text-red-800 hover:bg-red-100 dark:border-red-700 dark:bg-red-950/30 dark:text-red-300"
           >
             Reject
           </button>
@@ -273,6 +273,5 @@ function formatCheck(
   const detail = check.detail ?? check.details;
   return detail ? `${status}: ${check.name ?? "check"} (${detail})` : `${status}: ${check.name ?? "check"}`;
 }
-
 
 

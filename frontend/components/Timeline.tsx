@@ -63,18 +63,17 @@ export default function Timeline({ backendBase = process.env.NEXT_PUBLIC_API_BAS
   }
 
   return (
-    <div className="h-full min-h-0 flex flex-col rounded-2xl border bg-card shadow-soft glass">
-      {/* Optional header row could go here */}
+    <div className="h-full min-h-0 flex flex-col">
       <div
         ref={scrollRef}
-        className="flex-1 min-h-0 overflow-auto overscroll-contain px-4 py-4"
+        className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden overscroll-contain custom-scroll px-4 py-3"
       >
         <ul className="space-y-2">
           {rows.map((r, i) => (
             <li key={i} className="flex items-start gap-2">
               <Badge kind={r.kind} />
               <div className="flex-1">
-                <div className="text-sm">{r.text}</div>
+                <div className="text-sm break-words">{r.text}</div>
                 <div className="text-xs text-gray-500">
                   {new Date(r.at).toLocaleTimeString()}
                   {r.kind === "plan" && typeof r.conf === "number" ? (
